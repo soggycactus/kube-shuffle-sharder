@@ -80,6 +80,14 @@ func (r *ShuffleShardReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ShuffleShardReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Add an index field on the ShuffleShard's ShardHash to allow clients to query by this value
+	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1.ShuffleShard{}, "status.shardHash", func(o client.Object) []string {
+		shuffleShard := o.(*v1.ShuffleShard)
+		return []string{shuffleShard.Status.ShardHash}
+	}); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1.ShuffleShard{}).
 		Complete(r)
