@@ -10,7 +10,7 @@ repo: github.com/soggycactus/kube-shuffle-sharder
 resources:
 - api:
     crdVersion: v1
-    namespaced: true
+    namespaced: false
   controller: true
   domain: kube-shuffler-sharder.io
   kind: ShuffleShard
@@ -18,7 +18,7 @@ resources:
   version: v1
 - api:
     crdVersion: v1
-    namespaced: true
+    namespaced: false
   domain: kube-shuffler-sharder.io
   kind: NodeGroups
   path: github.com/soggycactus/kube-shuffle-sharder/api/v1
