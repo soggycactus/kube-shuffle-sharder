@@ -1,0 +1,27 @@
+# permissions for end users to view nodegroups.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: nodegroups-viewer-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: kube-shuffle-sharder
+    app.kubernetes.io/part-of: kube-shuffle-sharder
+    app.kubernetes.io/managed-by: kustomize
+  name: nodegroups-viewer-role
+rules:
+- apiGroups:
+  - kube-shuffler-sharder.io
+  resources:
+  - nodegroups
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kube-shuffler-sharder.io
+  resources:
+  - nodegroups/status
+  verbs:
+  - get

@@ -96,6 +96,17 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "ShuffleShard")
 		os.Exit(1)
 	}
+	if err = (&controller.NodeGroupsReconciler{
+		Config: mgr.GetConfig(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "NodeGroups")
+		os.Exit(1)
+	}
+	// if err = (&kubeshufflersharderiov1.NodeGroups{}).SetupWebhookWithManager(mgr); err != nil {
+	// 	setupLog.Error(err, "unable to create webhook", "webhook", "NodeGroups")
+	// 	os.Exit(1)
+	// }
+
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
