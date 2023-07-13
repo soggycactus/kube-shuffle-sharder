@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	v1 "github.com/soggycactus/kube-shuffle-sharder/api/v1"
@@ -96,15 +95,9 @@ func (r *NodeGroupsReconciler) addFunc(obj interface{}) {
 	ctx := context.Background()
 	logger := log.FromContext(ctx)
 
-	node, ok := obj.(*corev1.Node)
-	if !ok {
-		logger.Error(nil, ErrUnableToCastNode.Error())
-		return
-	}
-
-	group, ok := node.Labels[r.NodeGroupAutoDiscoveryLabel]
-	if !ok {
-		logger.Error(ErrMissingNodeAutoDiscoveryLabel, fmt.Sprintf("missing label: %v", r.NodeGroupAutoDiscoveryLabel))
+	node, group, err := r.getGroupFromNode(obj)
+	if err != nil {
+		logger.Error(err, "failed to get group from node")
 		return
 	}
 
@@ -114,11 +107,11 @@ func (r *NodeGroupsReconciler) addFunc(obj interface{}) {
 		return
 	}
 
-	_, ok = defaultNodeGroups.Status.NodeGroups[group]
+	_, ok := defaultNodeGroups.Status.NodeGroups[*group]
 	if !ok {
-		defaultNodeGroups.Status.NodeGroups[group] = 1
+		defaultNodeGroups.Status.NodeGroups[*group] = 1
 	} else {
-		defaultNodeGroups.Status.NodeGroups[group] += 1
+		defaultNodeGroups.Status.NodeGroups[*group] += 1
 	}
 
 	if err := r.updateDefaultNodeGroups(ctx, defaultNodeGroups); err != nil {
@@ -130,6 +123,29 @@ func (r *NodeGroupsReconciler) addFunc(obj interface{}) {
 }
 
 func (r *NodeGroupsReconciler) updateFunc(oldObj, newObj interface{}) {
+	ctx := context.Background()
+	logger := log.FromContext(ctx)
+
+	_, oldGroup, err := r.getGroupFromNode(oldObj)
+	if err != nil {
+		logger.Error(err, "failed to get previous node state")
+		return
+	}
+
+	_, newGroup, err := r.getGroupFromNode(newObj)
+	if err != nil {
+		logger.Error(err, "failed to get new node state")
+		return
+	}
+
+	if oldGroup == newGroup {
+		return
+	}
+
+	_, err = r.getDefaultNodeGroups(ctx)
+	if err != nil {
+		logger.Error(err, "failed to fetch default node group")
+	}
 
 }
 
@@ -160,6 +176,20 @@ func (r *NodeGroupsReconciler) initializeDefaultNodeGroups(ctx context.Context) 
 	}
 
 	return r.Client.Status().Update(ctx, &defaultNodeGroups)
+}
+
+func (r *NodeGroupsReconciler) getGroupFromNode(obj interface{}) (*corev1.Node, *string, error) {
+	node, ok := obj.(*corev1.Node)
+	if !ok {
+		return nil, nil, ErrUnableToCastNode
+	}
+
+	group, ok := node.Labels[r.NodeGroupAutoDiscoveryLabel]
+	if !ok {
+		return nil, nil, ErrMissingNodeAutoDiscoveryLabel
+	}
+
+	return node, &group, nil
 }
 
 func (r *NodeGroupsReconciler) getDefaultNodeGroups(ctx context.Context) (*v1.NodeGroups, error) {
