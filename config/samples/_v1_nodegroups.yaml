@@ -1,4 +1,4 @@
-apiVersion: kube-shuffler-sharder.io/v1
+apiVersion: kube-shuffle-sharder.io/v1
 kind: NodeGroups
 metadata:
   labels:

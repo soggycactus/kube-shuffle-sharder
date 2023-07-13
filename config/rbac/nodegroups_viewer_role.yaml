@@ -12,7 +12,7 @@ metadata:
   name: nodegroups-viewer-role
 rules:
 - apiGroups:
-  - kube-shuffler-sharder.io
+  - kube-shuffle-sharder.io
   resources:
   - nodegroups
   verbs:
@@ -20,7 +20,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - kube-shuffler-sharder.io
+  - kube-shuffle-sharder.io
   resources:
   - nodegroups/status
   verbs:

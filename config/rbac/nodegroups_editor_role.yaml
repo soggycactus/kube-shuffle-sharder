@@ -12,7 +12,7 @@ metadata:
   name: nodegroups-editor-role
 rules:
 - apiGroups:
-  - kube-shuffler-sharder.io
+  - kube-shuffle-sharder.io
   resources:
   - nodegroups
   verbs:
@@ -24,7 +24,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - kube-shuffler-sharder.io
+  - kube-shuffle-sharder.io
   resources:
   - nodegroups/status
   verbs:

@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.12.0
-  name: shuffleshards.kube-shuffler-sharder.io
+  name: shuffleshards.kube-shuffle-sharder.io
 spec:
-  group: kube-shuffler-sharder.io
+  group: kube-shuffle-sharder.io
   names:
     kind: ShuffleShard
     listKind: ShuffleShardList

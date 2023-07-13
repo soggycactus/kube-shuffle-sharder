@@ -36,9 +36,9 @@ type ShuffleShardReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=kube-shuffler-sharder.io,resources=shuffleshards,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=kube-shuffler-sharder.io,resources=shuffleshards/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=kube-shuffler-sharder.io,resources=shuffleshards/finalizers,verbs=update
+//+kubebuilder:rbac:groups=kube-shuffle-sharder.io,resources=shuffleshards,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=kube-shuffle-sharder.io,resources=shuffleshards/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=kube-shuffle-sharder.io,resources=shuffleshards/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.

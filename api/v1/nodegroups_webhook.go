@@ -36,7 +36,7 @@ func (r *NodeGroups) SetupWebhookWithManager(mgr ctrl.Manager) error {
 // TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 
 // TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
-//+kubebuilder:webhook:path=/validate-kube-shuffler-sharder-io-v1-nodegroups,mutating=false,failurePolicy=fail,sideEffects=None,groups=kube-shuffler-sharder.io,resources=nodegroups,verbs=create;update,versions=v1,name=vnodegroups.kb.io,admissionReviewVersions=v1
+//+kubebuilder:webhook:path=/validate-kube-shuffler-sharder-io-v1-nodegroups,mutating=false,failurePolicy=fail,sideEffects=None,groups=kube-shuffle-sharder.io,resources=nodegroups,verbs=create;update,versions=v1,name=vnodegroups.kb.io,admissionReviewVersions=v1
 
 var _ webhook.Validator = &NodeGroups{}
 

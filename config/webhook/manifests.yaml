@@ -15,7 +15,7 @@ webhooks:
   name: vnodegroups.kb.io
   rules:
   - apiGroups:
-    - kube-shuffler-sharder.io
+    - kube-shuffle-sharder.io
     apiVersions:
     - v1
     operations:
