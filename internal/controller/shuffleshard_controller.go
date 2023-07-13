@@ -54,7 +54,10 @@ func (r *ShuffleShardReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	var shuffleShard v1.ShuffleShard
 	if err := r.Get(ctx, req.NamespacedName, &shuffleShard); err != nil {
-		logger.Error(err, "unable to fetch ShuffleShard")
+		if client.IgnoreNotFound(err) != nil {
+			logger.Error(err, "unable to fetch ShuffleShard")
+		}
+
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 

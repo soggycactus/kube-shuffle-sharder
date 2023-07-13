@@ -38,11 +38,11 @@ spec:
             description: NodeGroupsStatus defines the observed state of NodeGroups
             properties:
               nodeGroups:
-                description: NodeGroups is a list of node group names introspected
-                  by examining the specified node label
-                items:
-                  type: string
-                type: array
+                additionalProperties:
+                  type: integer
+                description: NodeGroups is a map of node groups & the number of nodes
+                  contained in each group
+                type: object
             required:
             - nodeGroups
             type: object

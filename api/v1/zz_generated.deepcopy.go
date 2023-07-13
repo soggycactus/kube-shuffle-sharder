@@ -104,8 +104,10 @@ func (in *NodeGroupsStatus) DeepCopyInto(out *NodeGroupsStatus) {
 	*out = *in
 	if in.NodeGroups != nil {
 		in, out := &in.NodeGroups, &out.NodeGroups
-		*out = make([]string, len(*in))
-		copy(*out, *in)
+		*out = make(map[string]int, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
 	}
 }
 

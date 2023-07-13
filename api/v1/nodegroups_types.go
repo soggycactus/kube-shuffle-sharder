@@ -34,8 +34,8 @@ type NodeGroupsStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// NodeGroups is a list of node group names introspected by examining the specified node label
-	NodeGroups []string `json:"nodeGroups"`
+	// NodeGroups is a map of node groups & the number of nodes contained in each group
+	NodeGroups map[string]int `json:"nodeGroups"`
 }
 
 //+kubebuilder:object:root=true
