@@ -35,7 +35,11 @@ type NodeGroupsStatus struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// NodeGroups is a map of node groups & the number of nodes contained in each group
-	NodeGroups map[string]int `json:"nodeGroups"`
+	NodeGroups map[string]NodeGroupMap `json:"nodeGroups"`
+}
+
+type NodeGroupMap struct {
+	Nodes map[string]bool `json:"nodes"`
 }
 
 //+kubebuilder:object:root=true

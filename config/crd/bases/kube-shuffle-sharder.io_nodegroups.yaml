@@ -39,7 +39,14 @@ spec:
             properties:
               nodeGroups:
                 additionalProperties:
-                  type: integer
+                  properties:
+                    nodes:
+                      additionalProperties:
+                        type: boolean
+                      type: object
+                  required:
+                  - nodes
+                  type: object
                 description: NodeGroups is a map of node groups & the number of nodes
                   contained in each group
                 type: object

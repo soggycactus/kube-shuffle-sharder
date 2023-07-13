@@ -107,12 +107,7 @@ func (r *NodeGroupsReconciler) addFunc(obj interface{}) {
 		return
 	}
 
-	_, ok := defaultNodeGroups.Status.NodeGroups[*group]
-	if !ok {
-		defaultNodeGroups.Status.NodeGroups[*group] = 1
-	} else {
-		defaultNodeGroups.Status.NodeGroups[*group] += 1
-	}
+	r.addNodeIfNotExists(defaultNodeGroups, *group, node.Name)
 
 	if err := r.updateDefaultNodeGroups(ctx, defaultNodeGroups); err != nil {
 		logger.Error(err, "failed to update NodeGroups")
@@ -126,33 +121,104 @@ func (r *NodeGroupsReconciler) updateFunc(oldObj, newObj interface{}) {
 	ctx := context.Background()
 	logger := log.FromContext(ctx)
 
-	_, oldGroup, err := r.getGroupFromNode(oldObj)
+	oldNode, oldGroup, err := r.getGroupFromNode(oldObj)
 	if err != nil {
 		logger.Error(err, "failed to get previous node state")
 		return
 	}
 
-	_, newGroup, err := r.getGroupFromNode(newObj)
+	newNode, newGroup, err := r.getGroupFromNode(newObj)
 	if err != nil {
 		logger.Error(err, "failed to get new node state")
 		return
 	}
 
-	if oldGroup == newGroup {
+	if *oldGroup == *newGroup {
 		return
 	}
 
-	_, err = r.getDefaultNodeGroups(ctx)
+	defaultNodeGroups, err := r.getDefaultNodeGroups(ctx)
 	if err != nil {
 		logger.Error(err, "failed to fetch default node group")
+		return
 	}
 
+	r.addNodeIfNotExists(defaultNodeGroups, *newGroup, newNode.Name)
+	r.deleteNodeIfExists(defaultNodeGroups, *oldGroup, oldNode.Name)
+
+	if err := r.updateDefaultNodeGroups(ctx, defaultNodeGroups); err != nil {
+		logger.Error(err, "failed to update NodeGroups")
+		return
+	}
+
+	logger.Info("node moved to different group", "name", newNode.Name, "oldGroup", *oldGroup, "newGroup", *newGroup)
 }
 
 func (r *NodeGroupsReconciler) deleteFunc(obj interface{}) {
-	logger := log.FromContext(context.Background())
-	logger.Info("delete not yet implemented")
+	ctx := context.Background()
+	logger := log.FromContext(ctx)
 
+	node, group, err := r.getGroupFromNode(obj)
+	if err != nil {
+		logger.Error(err, "failed to get group from node")
+		return
+	}
+
+	defaultNodeGroups, err := r.getDefaultNodeGroups(ctx)
+	if err != nil {
+		logger.Error(err, "failed to fetch default node groups")
+		return
+	}
+
+	r.deleteNodeIfExists(defaultNodeGroups, *group, node.Name)
+
+	if err := r.updateDefaultNodeGroups(ctx, defaultNodeGroups); err != nil {
+		logger.Error(err, "failed to update NodeGroups")
+		return
+	}
+
+	logger.Info("node removed from group", "name", node.Name, "group", group)
+}
+
+func (r *NodeGroupsReconciler) addNodeIfNotExists(nodeGroups *v1.NodeGroups, group, nodeName string) {
+	nodeGroupMap, ok := nodeGroups.Status.NodeGroups[group]
+	// if the node group doesn't exist, create it & initialize it with the node
+	if !ok {
+		nodeGroups.Status.NodeGroups[group] = v1.NodeGroupMap{
+			Nodes: map[string]bool{
+				nodeName: true,
+			},
+		}
+		return
+	}
+
+	// return if the node is already counted in the group
+	_, ok = nodeGroupMap.Nodes[nodeName]
+	if ok {
+		return
+	}
+
+	nodeGroupMap.Nodes[nodeName] = true
+
+}
+
+func (r *NodeGroupsReconciler) deleteNodeIfExists(nodeGroups *v1.NodeGroups, group, nodeName string) {
+	nodeGroupMap, ok := nodeGroups.Status.NodeGroups[group]
+	// if the node group doesn't exist, return
+	if !ok {
+		return
+	}
+
+	// if the node doesn't exist, return
+	if _, ok := nodeGroupMap.Nodes[nodeName]; !ok {
+		return
+	}
+
+	delete(nodeGroupMap.Nodes, nodeName)
+
+	if len(nodeGroupMap.Nodes) == 0 {
+		delete(nodeGroups.Status.NodeGroups, group)
+	}
 }
 
 func (r *NodeGroupsReconciler) initializeDefaultNodeGroups(ctx context.Context) error {
@@ -172,7 +238,7 @@ func (r *NodeGroupsReconciler) initializeDefaultNodeGroups(ctx context.Context) 
 	}
 
 	defaultNodeGroups.Status = v1.NodeGroupsStatus{
-		NodeGroups: make(map[string]int),
+		NodeGroups: make(map[string]v1.NodeGroupMap),
 	}
 
 	return r.Client.Status().Update(ctx, &defaultNodeGroups)
