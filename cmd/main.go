@@ -19,6 +19,7 @@ package main
 import (
 	"flag"
 	"os"
+	"sync"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -98,18 +99,15 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "ShuffleShard")
 		os.Exit(1)
 	}
-	if err = (&controller.NodeGroupsReconciler{
-		Client:                      mgr.GetClient(),
+	if err = (&controller.PodMutatingWebhook{
 		Config:                      mgr.GetConfig(),
+		Mu:                          new(sync.Mutex),
+		Cache:                       make(controller.NodeGroupCollection),
 		NodeGroupAutoDiscoveryLabel: nodeGroupAutoDiscoveryLabel,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeGroups")
 		os.Exit(1)
 	}
-	// if err = (&kubeshufflersharderiov1.NodeGroups{}).SetupWebhookWithManager(mgr); err != nil {
-	// 	setupLog.Error(err, "unable to create webhook", "webhook", "NodeGroups")
-	// 	os.Exit(1)
-	// }
 
 	//+kubebuilder:scaffold:builder
 
