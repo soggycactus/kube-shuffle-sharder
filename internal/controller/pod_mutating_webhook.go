@@ -2,7 +2,9 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
 	"sync"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 type NodeGroup struct {
@@ -29,6 +32,7 @@ type PodMutatingWebhook struct {
 	Mu                          *sync.Mutex
 	Cache                       NodeGroupCollection
 	NodeGroupAutoDiscoveryLabel string
+	decoder                     *admission.Decoder
 }
 
 func (p *PodMutatingWebhook) Start(ctx context.Context) error {
@@ -51,9 +55,9 @@ func (p *PodMutatingWebhook) StartInformer(ctx context.Context) error {
 	handle, err := nodeInformer.AddEventHandler(cache.FilteringResourceEventHandler{
 		FilterFunc: p.filterFunc,
 		Handler: cache.ResourceEventHandlerFuncs{
-			AddFunc:    p.addFunc,
-			UpdateFunc: p.updateFunc,
-			DeleteFunc: p.deleteFunc,
+			AddFunc:    p.AddFunc,
+			UpdateFunc: p.UpdateFunc,
+			DeleteFunc: p.DeleteFunc,
 		},
 	})
 	if err != nil {
@@ -91,7 +95,7 @@ func (p *PodMutatingWebhook) filterFunc(obj interface{}) bool {
 	return true
 }
 
-func (p *PodMutatingWebhook) addFunc(obj interface{}) {
+func (p *PodMutatingWebhook) AddFunc(obj interface{}) {
 	ctx := context.Background()
 	logger := log.FromContext(ctx)
 
@@ -106,7 +110,7 @@ func (p *PodMutatingWebhook) addFunc(obj interface{}) {
 	logger.Info("new node added", "name", node.Name, "group", group)
 }
 
-func (p *PodMutatingWebhook) updateFunc(oldObj, newObj interface{}) {
+func (p *PodMutatingWebhook) UpdateFunc(oldObj, newObj interface{}) {
 	ctx := context.Background()
 	logger := log.FromContext(ctx)
 
@@ -132,7 +136,7 @@ func (p *PodMutatingWebhook) updateFunc(oldObj, newObj interface{}) {
 	logger.Info("node moved to different group", "name", newNode.Name, "oldGroup", *oldGroup, "newGroup", *newGroup)
 }
 
-func (p *PodMutatingWebhook) deleteFunc(obj interface{}) {
+func (p *PodMutatingWebhook) DeleteFunc(obj interface{}) {
 	ctx := context.Background()
 	logger := log.FromContext(ctx)
 
@@ -214,6 +218,26 @@ func (p *PodMutatingWebhook) getGroupFromNode(obj interface{}) (*corev1.Node, *s
 	return node, &group, nil
 }
 
+func (p *PodMutatingWebhook) Handle(ctx context.Context, req admission.Request) admission.Response {
+	pod := &corev1.Pod{}
+	err := p.decoder.Decode(req, pod)
+	if err != nil {
+		return admission.Errored(http.StatusBadRequest, err)
+	}
+
+	marshaledPod, err := json.Marshal(pod)
+	if err != nil {
+		return admission.Errored(http.StatusInternalServerError, err)
+	}
+	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
+}
+
+func (p *PodMutatingWebhook) InjectDecoder(d *admission.Decoder) error {
+	p.decoder = d
+	return nil
+}
+
 func (p *PodMutatingWebhook) SetupWithManager(mgr ctrl.Manager) error {
+	//mgr.GetWebhookServer().Register("/mutate-v1-pod", &webhook.Admission{Handler: p})
 	return mgr.Add(p)
 }
