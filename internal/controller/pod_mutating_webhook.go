@@ -17,6 +17,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -26,6 +27,8 @@ type NodeGroup struct {
 }
 
 type NodeGroupCollection map[string]NodeGroup
+
+// +kubebuilder:webhook:admissionReviewVersions=v1,sideEffects=None,path=/mutate-v1-pod,mutating=true,failurePolicy=fail,groups="",resources=pods,verbs=create;update,versions=v1,name=webhook.kube-shuffle-sharder.io
 
 type PodMutatingWebhook struct {
 	Config                      *rest.Config
@@ -238,6 +241,6 @@ func (p *PodMutatingWebhook) InjectDecoder(d *admission.Decoder) error {
 }
 
 func (p *PodMutatingWebhook) SetupWithManager(mgr ctrl.Manager) error {
-	//mgr.GetWebhookServer().Register("/mutate-v1-pod", &webhook.Admission{Handler: p})
+	mgr.GetWebhookServer().Register("/mutate-v1-pod", &webhook.Admission{Handler: p})
 	return mgr.Add(p)
 }
