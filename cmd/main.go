@@ -105,7 +105,7 @@ func main() {
 		Cache:                       make(controller.NodeGroupCollection),
 		NodeGroupAutoDiscoveryLabel: nodeGroupAutoDiscoveryLabel,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "NodeGroups")
+		setupLog.Error(err, "unable to create webhook", "webhook", "PodMutatingWebhook")
 		os.Exit(1)
 	}
 
