@@ -72,4 +72,28 @@ func TestEventHandlerFuncs(t *testing.T) {
 	Expect(p.Cache["group-b"].NumNodes).To(Equal(2))
 	Expect(p.Cache["group-c"].NumNodes).To(Equal(1))
 	Expect(p.Cache["group-d"].NumNodes).To(Equal(1))
+
+	oldNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-4",
+			Labels: map[string]string{
+				autoDiscoveryLabel: "group-c",
+			},
+		},
+	}
+	newNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-4",
+			Labels: map[string]string{
+				autoDiscoveryLabel: "group-d",
+			},
+		},
+	}
+	p.UpdateFunc(oldNode, newNode)
+	_, ok := p.Cache["group-c"]
+	Expect(ok).To(BeFalse())
+	Expect(p.Cache["group-d"].NumNodes).To(Equal(2))
+
+	p.DeleteFunc(newNode)
+	Expect(p.Cache["group-d"].NumNodes).To(Equal(1))
 }
