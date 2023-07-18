@@ -305,7 +305,7 @@ func (p *PodMutatingWebhook) ShuffleShard(ctx context.Context, numNodeGroups int
 	sharder := shuffleshard.Sharder[string]{
 		Endpoints:         nodeGroups,
 		ReplicationFactor: numNodeGroups,
-		ShardKeyFunc:      shuffleshard.HashShard,
+		ShardKeyFunc:      HashShard,
 		ShardStore:        p,
 		Rand:              rand.New(rand.NewSource(time.Now().Unix())),
 	}

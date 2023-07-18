@@ -36,6 +36,22 @@ type ShuffleShardReconciler struct {
 	Scheme *runtime.Scheme
 }
 
+func HashShard(shard []string) (string, error) {
+	shardCopy := make([]string, len(shard))
+	copy(shardCopy, shard)
+	sort.Strings(shardCopy)
+
+	nodeGroups := strings.Join(shardCopy, "")
+	hasher := sha256.New()
+	_, err := hasher.Write([]byte(nodeGroups))
+	if err != nil {
+		return "", err
+	}
+
+	hash := hex.EncodeToString(hasher.Sum(nil))
+	return hash, nil
+}
+
 //+kubebuilder:rbac:groups=kube-shuffle-sharder.io,resources=shuffleshards,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=kube-shuffle-sharder.io,resources=shuffleshards/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=kube-shuffle-sharder.io,resources=shuffleshards/finalizers,verbs=update
@@ -61,16 +77,10 @@ func (r *ShuffleShardReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	sort.Strings(shuffleShard.Spec.NodeGroups)
-	nodeGroups := strings.Join(shuffleShard.Spec.NodeGroups, "")
-	hasher := sha256.New()
-	_, err := hasher.Write([]byte(nodeGroups))
+	hash, err := HashShard(shuffleShard.Spec.NodeGroups)
 	if err != nil {
-		logger.Error(err, "unable to hash shard values")
 		return ctrl.Result{}, err
 	}
-
-	hash := hex.EncodeToString(hasher.Sum(nil))
 	shuffleShard.Status.ShardHash = hash
 
 	if err := r.Status().Update(ctx, &shuffleShard); err != nil {

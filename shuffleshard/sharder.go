@@ -2,12 +2,8 @@ package shuffleshard
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"math/rand"
-	"sort"
-	"strings"
 )
 
 var ErrNoShardsAvailable = errors.New("no shards available")
@@ -69,19 +65,4 @@ func (s *Sharder[T]) backtrack(ctx context.Context, cursor, endpoints []T) ([]T,
 	}
 
 	return nil, ErrNoShardsAvailable
-}
-
-func HashShard(shard []string) (string, error) {
-	shardCopy := make([]string, len(shard))
-	copy(shardCopy, shard)
-	sort.Strings(shardCopy)
-	nodeGroups := strings.Join(shardCopy, "")
-	hasher := sha256.New()
-	_, err := hasher.Write([]byte(nodeGroups))
-	if err != nil {
-		return "", err
-	}
-
-	hash := hex.EncodeToString(hasher.Sum(nil))
-	return hash, nil
 }

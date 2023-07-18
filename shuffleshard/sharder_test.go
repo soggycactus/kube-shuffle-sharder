@@ -2,8 +2,12 @@ package shuffleshard_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math/rand"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +33,22 @@ func (m *MockShardStore) ShardExists(ctx context.Context, hash string) (bool, er
 	return true, nil
 }
 
+func HashShard(shard []string) (string, error) {
+	shardCopy := make([]string, len(shard))
+	copy(shardCopy, shard)
+	sort.Strings(shardCopy)
+
+	nodeGroups := strings.Join(shardCopy, "")
+	hasher := sha256.New()
+	_, err := hasher.Write([]byte(nodeGroups))
+	if err != nil {
+		return "", err
+	}
+
+	hash := hex.EncodeToString(hasher.Sum(nil))
+	return hash, nil
+}
+
 func TestSharder(t *testing.T) {
 	store := &MockShardStore{
 		Store: map[string]struct{}{},
@@ -43,7 +63,7 @@ func TestSharder(t *testing.T) {
 		Endpoints:         endpoints,
 		ReplicationFactor: ReplicationFactor,
 		ShardStore:        store,
-		ShardKeyFunc:      shuffleshard.HashShard,
+		ShardKeyFunc:      HashShard,
 		Rand:              rand.New(rand.NewSource(time.Now().Unix())),
 	}
 
@@ -59,7 +79,7 @@ func TestSharder(t *testing.T) {
 			break
 		}
 
-		hash, err := shuffleshard.HashShard(result)
+		hash, err := HashShard(result)
 		if err != nil {
 			t.Logf("failed to hash shard: %v", err)
 			t.Logf("created %d shards", shardCount)
