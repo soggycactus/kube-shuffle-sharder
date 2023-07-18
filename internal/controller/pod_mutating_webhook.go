@@ -46,6 +46,9 @@ type PodMutatingWebhook struct {
 	decoder                     *admission.Decoder
 }
 
+// Start fulfills the manager.Runnable interface,
+// required when calling (manager.Manager).Add in
+// (controller.PodMutatingWebhook).SetupWithManager
 func (p *PodMutatingWebhook) Start(ctx context.Context) error {
 	return p.StartInformer(ctx)
 }
@@ -255,7 +258,8 @@ func (p *PodMutatingWebhook) Handle(ctx context.Context, req admission.Request) 
 	}
 
 	var nodeGroups []string
-	// If the shard list is empty, create a new shard
+	// If the shard list is not empty, use that for the node groups
+	// otherwise shuffle shard a new group
 	if len(shardList.Items) != 0 {
 		nodeGroups = shardList.Items[0].Spec.NodeGroups
 	} else {
@@ -316,18 +320,23 @@ func (p *PodMutatingWebhook) ShardExists(ctx context.Context, shardHash string) 
 			"status.shardHash": shardHash,
 		}),
 	}); client.IgnoreNotFound(err) != nil {
-		// return true in case the caller doesn't check the err - forcing another iteration of backtracking
+		// return true in case the caller doesn't check the err
+		// to force another iteration of backtracking
 		return true, err
 	}
 
 	return true, nil
 }
 
+// InjectDecoder provides a method for an admission.Decoder to be set;
+// controller-runtime will automatically inject a decoder using this method
 func (p *PodMutatingWebhook) InjectDecoder(d *admission.Decoder) error {
 	p.decoder = d
 	return nil
 }
 
+// SetupWithManager registers the handler with manager's webhook server
+// and adds the informer to the list of processes for manager to start
 func (p *PodMutatingWebhook) SetupWithManager(mgr ctrl.Manager) error {
 	mgr.GetWebhookServer().Register("/mutate-v1-pod", &webhook.Admission{Handler: p})
 	return mgr.Add(p)
