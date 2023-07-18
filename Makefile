@@ -171,3 +171,13 @@ $(HELMIFY): $(LOCALBIN)
     
 helm: manifests kustomize helmify
 	$(KUSTOMIZE) build config/default | $(HELMIFY)
+
+CAROOT ?= $(shell pwd)/certs
+$(CAROOT):
+	mkdir -p $(CAROOT)
+
+.PHONY: certs
+certs:
+	export CAROOT=$(CAROOT) 
+	mkcert -install
+	mkcert -cert-file="$(CAROOT)/tls.crt" -key-file="$(CAROOT)/tls.key" host.docker.internal 172.17.0.1
