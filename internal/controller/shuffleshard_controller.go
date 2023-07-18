@@ -101,14 +101,6 @@ func (r *ShuffleShardReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 
-	// Add an index field on the ShuffleShard's tenant to allow clients to query by this value
-	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1.ShuffleShard{}, "spec.tenant", func(o client.Object) []string {
-		shuffleShard := o.(*v1.ShuffleShard)
-		return []string{shuffleShard.Spec.Tenant}
-	}); err != nil {
-		return err
-	}
-
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1.ShuffleShard{}).
 		Complete(r)
