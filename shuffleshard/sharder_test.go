@@ -3,9 +3,18 @@ package shuffleshard_test
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/soggycactus/kube-shuffle-sharder/shuffleshard"
+)
+
+const (
+	// Run a test for 100 choose 3, which should result in 161,700 unique combinations
+	NumEndpoints      = 100
+	ReplicationFactor = 3
+	ExpectedShards    = 161700
 )
 
 type MockShardStore struct {
@@ -26,24 +35,28 @@ func TestSharder(t *testing.T) {
 	}
 
 	var endpoints []string
-	for i := 0; i < 20; i++ {
+	for i := 0; i < NumEndpoints; i++ {
 		endpoints = append(endpoints, fmt.Sprintf("group-%d", i))
 	}
 
 	sharder := shuffleshard.Sharder[string]{
 		Endpoints:         endpoints,
-		ReplicationFactor: 5,
+		ReplicationFactor: ReplicationFactor,
 		ShardStore:        store,
 		ShardKeyFunc:      shuffleshard.HashShard,
+		Rand:              rand.New(rand.NewSource(time.Now().Unix())),
 	}
 
 	shardCount := 0
 	for {
 		result, err := sharder.ShuffleShard(context.Background())
 		if err != nil {
-			t.Logf("shuffle shard failed: %v", err)
-			t.Logf("created %d shards", shardCount)
-			t.FailNow()
+			if err != shuffleshard.ErrNoShardsAvailable {
+				t.Logf("shuffle shard failed: %v", err)
+				t.Logf("created %d shards", shardCount)
+				t.FailNow()
+			}
+			break
 		}
 
 		hash, err := shuffleshard.HashShard(result)
@@ -56,5 +69,10 @@ func TestSharder(t *testing.T) {
 		store.Store[hash] = struct{}{}
 
 		shardCount += 1
+	}
+
+	if shardCount != ExpectedShards {
+		t.Logf("incorrect shard count: got %d, expected %d", shardCount, ExpectedShards)
+		t.FailNow()
 	}
 }

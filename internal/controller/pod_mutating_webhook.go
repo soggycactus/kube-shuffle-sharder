@@ -41,6 +41,8 @@ type PodMutatingWebhook struct {
 	Mu                          *sync.Mutex
 	Cache                       NodeGroupCollection
 	NodeGroupAutoDiscoveryLabel string
+	TenantLabel                 string
+	NumNodeGroups               int
 	decoder                     *admission.Decoder
 }
 
@@ -234,7 +236,50 @@ func (p *PodMutatingWebhook) Handle(ctx context.Context, req admission.Request) 
 		return admission.Errored(http.StatusBadRequest, err)
 	}
 
-	// TODO: inspect label & search for shuffle shard if it exists
+	// inspect label & search for shuffle shard if it exists
+	tenant, ok := pod.Labels[p.TenantLabel]
+	if !ok {
+		return admission.Errored(http.StatusBadRequest, ErrMissingTenantLabel)
+	}
+
+	shardList := v1.ShuffleShardList{}
+	err = p.Client.List(ctx, &shardList, &client.ListOptions{
+		FieldSelector: fields.SelectorFromSet(fields.Set{
+			"spec.tenant": tenant,
+		}),
+	})
+
+	// If the error is any error other than not found, return an error
+	if client.IgnoreNotFound(err) != nil {
+		return admission.Errored(http.StatusInternalServerError, err)
+	}
+
+	var nodeGroups []string
+	// If the shard list is empty, create a new shard
+	if len(shardList.Items) != 0 {
+		nodeGroups = shardList.Items[0].Spec.NodeGroups
+	} else {
+		groups, err := p.ShuffleShard(ctx, p.NumNodeGroups)
+		if err != nil {
+			return admission.Errored(http.StatusInternalServerError, err)
+		}
+
+		nodeGroups = groups
+	}
+
+	// Patch the pod's current node affinity
+	currentNodeAffinity := pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution
+	currentNodeAffinity.NodeSelectorTerms = append(currentNodeAffinity.NodeSelectorTerms, corev1.NodeSelectorTerm{
+		MatchExpressions: []corev1.NodeSelectorRequirement{
+			{
+				Key:      p.NodeGroupAutoDiscoveryLabel,
+				Operator: corev1.NodeSelectorOpIn,
+				Values:   nodeGroups,
+			},
+		},
+	})
+
+	pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = currentNodeAffinity
 
 	marshaledPod, err := json.Marshal(pod)
 	if err != nil {
@@ -253,16 +298,12 @@ func (p *PodMutatingWebhook) ShuffleShard(ctx context.Context, numNodeGroups int
 
 	p.Mu.Unlock()
 
-	// shuffle the order of node groups for better performance
-	rand.Shuffle(len(nodeGroups), func(i, j int) {
-		nodeGroups[i], nodeGroups[j] = nodeGroups[j], nodeGroups[i]
-	})
-
 	sharder := shuffleshard.Sharder[string]{
 		Endpoints:         nodeGroups,
 		ReplicationFactor: numNodeGroups,
 		ShardKeyFunc:      shuffleshard.HashShard,
 		ShardStore:        p,
+		Rand:              rand.New(rand.NewSource(time.Now().Unix())),
 	}
 
 	return sharder.ShuffleShard(ctx)
@@ -271,7 +312,9 @@ func (p *PodMutatingWebhook) ShuffleShard(ctx context.Context, numNodeGroups int
 func (p *PodMutatingWebhook) ShardExists(ctx context.Context, shardHash string) (bool, error) {
 	var shuffleShardList v1.ShuffleShardList
 	if err := p.Client.List(ctx, &shuffleShardList, &client.ListOptions{
-		FieldSelector: fields.AndSelectors(),
+		FieldSelector: fields.SelectorFromSet(fields.Set{
+			"status.shardHash": shardHash,
+		}),
 	}); client.IgnoreNotFound(err) != nil {
 		return true, err
 	}

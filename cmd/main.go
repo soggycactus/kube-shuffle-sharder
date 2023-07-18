@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"sync"
 
@@ -54,17 +55,27 @@ func main() {
 	var enableLeaderElection bool
 	var probeAddr string
 	var nodeGroupAutoDiscoveryLabel string
+	var tenantLabel string
+	var numNodeGroups int
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.StringVar(&nodeGroupAutoDiscoveryLabel, "node-group-auto-discovery-label", "kube-shuffle-sharder.io/node-group", "The label to inspect on nodes to determine node group membership.")
+	flag.StringVar(&tenantLabel, "tenant-label", "kube-shuffle-sharder.io/tenant", "The label to inspect on pods to determine the tenant.")
+	flag.IntVar(&numNodeGroups, "num-node-groups", 2, "The number of node groups to assign each shuffle shard.")
 	opts := zap.Options{
 		Development: true,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+
+	// Don't allow fewer than 2 node groups, since that defeats the purpose of shuffle sharding
+	if numNodeGroups < 2 {
+		setupLog.Error(fmt.Errorf("invalid number of node groups, got %d, must be at least 2", numNodeGroups), "unable to start manager")
+		os.Exit(1)
+	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
@@ -101,9 +112,12 @@ func main() {
 	}
 	if err = (&controller.PodMutatingWebhook{
 		Config:                      mgr.GetConfig(),
+		Client:                      mgr.GetClient(),
 		Mu:                          new(sync.Mutex),
 		Cache:                       make(controller.NodeGroupCollection),
 		NodeGroupAutoDiscoveryLabel: nodeGroupAutoDiscoveryLabel,
+		TenantLabel:                 tenantLabel,
+		NumNodeGroups:               numNodeGroups,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "PodMutatingWebhook")
 		os.Exit(1)

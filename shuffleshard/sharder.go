@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"math/rand"
 	"sort"
 	"strings"
 )
@@ -21,9 +22,14 @@ type Sharder[T any] struct {
 	ReplicationFactor int
 	ShardStore        ShardStore
 	ShardKeyFunc      func([]T) (string, error)
+	Rand              *rand.Rand
 }
 
 func (s *Sharder[T]) ShuffleShard(ctx context.Context) ([]T, error) {
+	// Shuffle the order of endpoints for better performance
+	s.Rand.Shuffle(len(s.Endpoints), func(i, j int) {
+		s.Endpoints[i], s.Endpoints[j] = s.Endpoints[j], s.Endpoints[i]
+	})
 	return s.backtrack(ctx, []T{}, s.Endpoints)
 }
 
