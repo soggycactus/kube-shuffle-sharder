@@ -4,18 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math/rand"
 	"net/http"
 	"sync"
 	"time"
 
+	v1 "github.com/soggycactus/kube-shuffle-sharder/api/v1"
+	"github.com/soggycactus/kube-shuffle-sharder/shuffleshard"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -32,6 +37,7 @@ type NodeGroupCollection map[string]NodeGroup
 
 type PodMutatingWebhook struct {
 	Config                      *rest.Config
+	Client                      client.Client
 	Mu                          *sync.Mutex
 	Cache                       NodeGroupCollection
 	NodeGroupAutoDiscoveryLabel string
@@ -228,11 +234,49 @@ func (p *PodMutatingWebhook) Handle(ctx context.Context, req admission.Request) 
 		return admission.Errored(http.StatusBadRequest, err)
 	}
 
+	// TODO: inspect label & search for shuffle shard if it exists
+
 	marshaledPod, err := json.Marshal(pod)
 	if err != nil {
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
+}
+
+func (p *PodMutatingWebhook) ShuffleShard(ctx context.Context, numNodeGroups int) ([]string, error) {
+	p.Mu.Lock()
+
+	nodeGroups := []string{}
+	for key := range p.Cache {
+		nodeGroups = append(nodeGroups, key)
+	}
+
+	p.Mu.Unlock()
+
+	// shuffle the order of node groups for better performance
+	rand.Shuffle(len(nodeGroups), func(i, j int) {
+		nodeGroups[i], nodeGroups[j] = nodeGroups[j], nodeGroups[i]
+	})
+
+	sharder := shuffleshard.Sharder[string]{
+		Endpoints:         nodeGroups,
+		ReplicationFactor: numNodeGroups,
+		ShardKeyFunc:      shuffleshard.HashShard,
+		ShardStore:        p,
+	}
+
+	return sharder.ShuffleShard(ctx)
+}
+
+func (p *PodMutatingWebhook) ShardExists(ctx context.Context, shardHash string) (bool, error) {
+	var shuffleShardList v1.ShuffleShardList
+	if err := p.Client.List(ctx, &shuffleShardList, &client.ListOptions{
+		FieldSelector: fields.AndSelectors(),
+	}); client.IgnoreNotFound(err) != nil {
+		return true, err
+	}
+
+	return true, nil
 }
 
 func (p *PodMutatingWebhook) InjectDecoder(d *admission.Decoder) error {
