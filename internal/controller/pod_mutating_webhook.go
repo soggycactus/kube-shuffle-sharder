@@ -13,7 +13,9 @@ import (
 	"github.com/soggycactus/kube-shuffle-sharder/shuffleshard"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -245,12 +247,8 @@ func (p *PodMutatingWebhook) Handle(ctx context.Context, req admission.Request) 
 		return admission.Errored(http.StatusBadRequest, ErrMissingTenantLabel)
 	}
 
-	shardList := v1.ShuffleShardList{}
-	err = p.Client.List(ctx, &shardList, &client.ListOptions{
-		FieldSelector: fields.SelectorFromSet(fields.Set{
-			"spec.tenant": tenant,
-		}),
-	})
+	shuffleShard := v1.ShuffleShard{}
+	err = p.Client.Get(ctx, types.NamespacedName{Name: tenant}, &shuffleShard)
 
 	// If the error is any error other than not found, return an error
 	if client.IgnoreNotFound(err) != nil {
@@ -258,12 +256,10 @@ func (p *PodMutatingWebhook) Handle(ctx context.Context, req admission.Request) 
 	}
 
 	var nodeGroups []string
-	// If the shard list is not empty, use that for the node groups
-	// otherwise shuffle shard a new group
-	if len(shardList.Items) != 0 {
-		nodeGroups = shardList.Items[0].Spec.NodeGroups
+	if shuffleShard.Spec.NodeGroups != nil {
+		nodeGroups = shuffleShard.Spec.NodeGroups
 	} else {
-		groups, err := p.ShuffleShard(ctx, p.NumNodeGroups)
+		groups, err := p.ShuffleShard(ctx, tenant, p.NumNodeGroups)
 		if err != nil {
 			return admission.Errored(http.StatusInternalServerError, err)
 		}
@@ -292,15 +288,14 @@ func (p *PodMutatingWebhook) Handle(ctx context.Context, req admission.Request) 
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
 }
 
-func (p *PodMutatingWebhook) ShuffleShard(ctx context.Context, numNodeGroups int) ([]string, error) {
+func (p *PodMutatingWebhook) ShuffleShard(ctx context.Context, tenant string, numNodeGroups int) ([]string, error) {
 	p.Mu.Lock()
+	defer p.Mu.Unlock()
 
 	nodeGroups := []string{}
 	for key := range p.Cache {
 		nodeGroups = append(nodeGroups, key)
 	}
-
-	p.Mu.Unlock()
 
 	sharder := shuffleshard.Sharder[string]{
 		Endpoints:         nodeGroups,
@@ -310,7 +305,25 @@ func (p *PodMutatingWebhook) ShuffleShard(ctx context.Context, numNodeGroups int
 		Rand:              rand.New(rand.NewSource(time.Now().Unix())),
 	}
 
-	return sharder.ShuffleShard(ctx)
+	groups, err := sharder.ShuffleShard(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	shuffleShard := v1.ShuffleShard{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: tenant,
+		},
+		Spec: v1.ShuffleShardSpec{
+			Tenant:     tenant,
+			NodeGroups: groups,
+		},
+	}
+	if err := p.Client.Create(ctx, &shuffleShard); err != nil {
+		return nil, err
+	}
+
+	return groups, nil
 }
 
 func (p *PodMutatingWebhook) ShardExists(ctx context.Context, shardHash string) (bool, error) {
