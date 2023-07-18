@@ -316,6 +316,7 @@ func (p *PodMutatingWebhook) ShardExists(ctx context.Context, shardHash string) 
 			"status.shardHash": shardHash,
 		}),
 	}); client.IgnoreNotFound(err) != nil {
+		// return true in case the caller doesn't check the err - forcing another iteration of backtracking
 		return true, err
 	}
 
