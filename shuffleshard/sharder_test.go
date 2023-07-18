@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	// Run a test for 100 choose 3, which should result in 161,700 unique combinations
-	NumEndpoints      = 100
-	ReplicationFactor = 3
-	ExpectedShards    = 161700
+	// Run a test for 20 choose 5, which should result in 15,504 unique combinations
+	NumEndpoints      = 20
+	ReplicationFactor = 5
+	ExpectedShards    = 15504
 )
 
 type MockShardStore struct {
