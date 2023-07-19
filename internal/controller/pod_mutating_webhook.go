@@ -251,11 +251,10 @@ func (p *PodMutatingWebhook) Handle(ctx context.Context, req admission.Request) 
 		return admission.Errored(http.StatusBadRequest, ErrMissingTenantLabel)
 	}
 
+	// Find the existing shard for the tenant, if it exists
 	shuffleShard := v1.ShuffleShard{}
-	err = p.Client.Get(ctx, types.NamespacedName{Name: tenant}, &shuffleShard)
-
 	// If the error is any error other than not found, return an error
-	if client.IgnoreNotFound(err) != nil {
+	if err = p.Client.Get(ctx, types.NamespacedName{Name: tenant}, &shuffleShard); client.IgnoreNotFound(err) != nil {
 		logger.Error(err, "failed to get ShuffleShard")
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
@@ -273,6 +272,7 @@ func (p *PodMutatingWebhook) Handle(ctx context.Context, req admission.Request) 
 		nodeGroups = groups
 	}
 
+	// Create the nodeSelectorTerm to patch
 	nodeSelectorTerm := corev1.NodeSelectorTerm{
 		MatchExpressions: []corev1.NodeSelectorRequirement{
 			{
@@ -283,6 +283,8 @@ func (p *PodMutatingWebhook) Handle(ctx context.Context, req admission.Request) 
 		},
 	}
 
+	// Unfortunately, we need to check for nil pointers on the pod's Affinity
+	// Appending our node groups to a nil NodeAffinity will cause a panic
 	switch {
 	case pod.Spec.Affinity == nil:
 		pod.Spec.Affinity = &corev1.Affinity{
@@ -372,13 +374,18 @@ func (p *PodMutatingWebhook) ShardExists(ctx context.Context, shardHash string) 
 		FieldSelector: fields.SelectorFromSet(fields.Set{
 			"status.shardHash": shardHash,
 		}),
-	}); client.IgnoreNotFound(err) != nil {
+	}); err != nil {
 		// return true in case the caller doesn't check the err
 		// to force another iteration of backtracking
 		return true, err
 	}
 
-	return false, nil
+	// if no shards exist, return false
+	if len(shuffleShardList.Items) == 0 {
+		return false, nil
+	}
+
+	return true, nil
 }
 
 // SetupWithManager registers the handler with manager's webhook server
