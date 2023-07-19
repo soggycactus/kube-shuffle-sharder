@@ -25,3 +25,10 @@ Dockerfile.cross
 
 # Dependency directories
 vendor/
+
+# VSCode
+.vscode
+
+# local test manifests
+nodes.yaml
+pod.yaml
