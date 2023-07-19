@@ -4,8 +4,8 @@ import (
 	"sync"
 	"testing"
 
-	. "github.com/onsi/gomega"
 	"github.com/soggycactus/kube-shuffle-sharder/internal/controller"
+	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -68,10 +68,10 @@ func TestEventHandlerFuncs(t *testing.T) {
 		p.AddFunc(node)
 	}
 
-	Expect(p.Cache["group-a"].NumNodes).To(Equal(1))
-	Expect(p.Cache["group-b"].NumNodes).To(Equal(2))
-	Expect(p.Cache["group-c"].NumNodes).To(Equal(1))
-	Expect(p.Cache["group-d"].NumNodes).To(Equal(1))
+	assert.Equal(t, 1, p.Cache["group-a"].NumNodes, "node count should match")
+	assert.Equal(t, 2, p.Cache["group-b"].NumNodes, "node count should match")
+	assert.Equal(t, 1, p.Cache["group-c"].NumNodes, "node count should match")
+	assert.Equal(t, 1, p.Cache["group-d"].NumNodes, "node count should match")
 
 	oldNode := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
@@ -91,9 +91,9 @@ func TestEventHandlerFuncs(t *testing.T) {
 	}
 	p.UpdateFunc(oldNode, newNode)
 	_, ok := p.Cache["group-c"]
-	Expect(ok).To(BeFalse())
-	Expect(p.Cache["group-d"].NumNodes).To(Equal(2))
+	assert.False(t, ok, "group-c should be missing")
+	assert.Equal(t, 2, p.Cache["group-d"].NumNodes, "node should have moved to group-d")
 
 	p.DeleteFunc(newNode)
-	Expect(p.Cache["group-d"].NumNodes).To(Equal(1))
+	assert.Equal(t, 1, p.Cache["group-d"].NumNodes, "node should have been removed from group-d")
 }
