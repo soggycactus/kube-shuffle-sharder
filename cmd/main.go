@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kubeshufflersharderiov1 "github.com/soggycactus/kube-shuffle-sharder/api/v1"
 	"github.com/soggycactus/kube-shuffle-sharder/internal/controller"
@@ -104,6 +105,7 @@ func main() {
 	// if CERT_DIRECTORY is specified, we are running locally
 	// this manually sets the webhook server's cert
 	if certDirectory != "" {
+		setupLog.Info("CERT_DIRECTORY environment variable detected, overriding webhook server config")
 		options.WebhookServer = webhook.NewServer(webhook.Options{
 			CertDir: certDirectory,
 		})
@@ -130,6 +132,7 @@ func main() {
 		NodeGroupAutoDiscoveryLabel: nodeGroupAutoDiscoveryLabel,
 		TenantLabel:                 tenantLabel,
 		NumNodeGroups:               numNodeGroups,
+		Decoder:                     admission.NewDecoder(scheme),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "PodMutatingWebhook")
 		os.Exit(1)

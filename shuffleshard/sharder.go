@@ -14,11 +14,20 @@ type ShardStore interface {
 }
 
 type Sharder[T any] struct {
-	Endpoints         []T
+	// Endpoints are a list of endpoints to generate shuffle shards from
+	Endpoints []T
+	// ReplicationFactor is the size of an individual shuffle shard
 	ReplicationFactor int
-	ShardStore        ShardStore
-	ShardKeyFunc      func([]T) (string, error)
-	Rand              *rand.Rand
+
+	// ShardStore is a storage of all existing shuffle shards.
+	// Sharder queries this store to ensure that a shuffle shard isn't allocated twice.
+	ShardStore ShardStore
+
+	// ShardKeyFunc is a function that receives a shuffle shard & returns a hash of its value.
+	// It is used to lookup a shard for existence in the ShardStore.
+	ShardKeyFunc func([]T) (string, error)
+
+	Rand *rand.Rand
 }
 
 func (s *Sharder[T]) ShuffleShard(ctx context.Context) ([]T, error) {

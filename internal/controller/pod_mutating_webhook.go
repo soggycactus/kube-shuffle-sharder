@@ -45,7 +45,7 @@ type PodMutatingWebhook struct {
 	NodeGroupAutoDiscoveryLabel string
 	TenantLabel                 string
 	NumNodeGroups               int
-	decoder                     *admission.Decoder
+	Decoder                     *admission.Decoder
 }
 
 // Start fulfills the manager.Runnable interface,
@@ -235,15 +235,19 @@ func (p *PodMutatingWebhook) getGroupFromNode(obj interface{}) (*corev1.Node, *s
 }
 
 func (p *PodMutatingWebhook) Handle(ctx context.Context, req admission.Request) admission.Response {
+	logger := log.FromContext(ctx)
+
 	pod := &corev1.Pod{}
-	err := p.decoder.Decode(req, pod)
+	err := p.Decoder.Decode(req, pod)
 	if err != nil {
+		logger.Error(err, "failed to decode request")
 		return admission.Errored(http.StatusBadRequest, err)
 	}
 
 	// inspect label & search for shuffle shard if it exists
 	tenant, ok := pod.Labels[p.TenantLabel]
 	if !ok {
+		logger.Error(ErrMissingTenantLabel, "failed to handle pod")
 		return admission.Errored(http.StatusBadRequest, ErrMissingTenantLabel)
 	}
 
@@ -252,6 +256,7 @@ func (p *PodMutatingWebhook) Handle(ctx context.Context, req admission.Request) 
 
 	// If the error is any error other than not found, return an error
 	if client.IgnoreNotFound(err) != nil {
+		logger.Error(err, "failed to get ShuffleShard")
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 
@@ -261,15 +266,14 @@ func (p *PodMutatingWebhook) Handle(ctx context.Context, req admission.Request) 
 	} else {
 		groups, err := p.ShuffleShard(ctx, tenant, p.NumNodeGroups)
 		if err != nil {
+			logger.Error(err, "failed to create ShuffleShard")
 			return admission.Errored(http.StatusInternalServerError, err)
 		}
 
 		nodeGroups = groups
 	}
 
-	// Patch the pod's current node affinity
-	currentNodeAffinity := pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution
-	currentNodeAffinity.NodeSelectorTerms = append(currentNodeAffinity.NodeSelectorTerms, corev1.NodeSelectorTerm{
+	nodeSelectorTerm := corev1.NodeSelectorTerm{
 		MatchExpressions: []corev1.NodeSelectorRequirement{
 			{
 				Key:      p.NodeGroupAutoDiscoveryLabel,
@@ -277,12 +281,48 @@ func (p *PodMutatingWebhook) Handle(ctx context.Context, req admission.Request) 
 				Values:   nodeGroups,
 			},
 		},
-	})
+	}
 
-	pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = currentNodeAffinity
+	switch {
+	case pod.Spec.Affinity == nil:
+		pod.Spec.Affinity = &corev1.Affinity{
+			NodeAffinity: &corev1.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+					NodeSelectorTerms: []corev1.NodeSelectorTerm{
+						nodeSelectorTerm,
+					},
+				},
+			},
+		}
+	case pod.Spec.Affinity.NodeAffinity == nil:
+		pod.Spec.Affinity.NodeAffinity = &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{
+					nodeSelectorTerm,
+				},
+			},
+		}
+	case pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil:
+		pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelector{
+			NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				nodeSelectorTerm,
+			},
+		}
+
+	case pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms == nil:
+		pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms = []corev1.NodeSelectorTerm{
+			nodeSelectorTerm,
+		}
+
+	default:
+		currentNodeAffinity := pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution
+		currentNodeAffinity.NodeSelectorTerms = append(currentNodeAffinity.NodeSelectorTerms, nodeSelectorTerm)
+		pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = currentNodeAffinity
+	}
 
 	marshaledPod, err := json.Marshal(pod)
 	if err != nil {
+		logger.Error(err, "failed to marshal pod")
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
@@ -338,19 +378,12 @@ func (p *PodMutatingWebhook) ShardExists(ctx context.Context, shardHash string) 
 		return true, err
 	}
 
-	return true, nil
-}
-
-// InjectDecoder provides a method for an admission.Decoder to be set;
-// controller-runtime will automatically inject a decoder using this method
-func (p *PodMutatingWebhook) InjectDecoder(d *admission.Decoder) error {
-	p.decoder = d
-	return nil
+	return false, nil
 }
 
 // SetupWithManager registers the handler with manager's webhook server
 // and adds the informer to the list of processes for manager to start
 func (p *PodMutatingWebhook) SetupWithManager(mgr ctrl.Manager) error {
-	mgr.GetWebhookServer().Register("/mutate-v1-pod", &webhook.Admission{Handler: p})
+	mgr.GetWebhookServer().Register("/mutate-v1-pod", &webhook.Admission{Handler: p, RecoverPanic: true})
 	return mgr.Add(p)
 }
