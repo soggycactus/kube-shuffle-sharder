@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/rand"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	v1 "github.com/soggycactus/kube-shuffle-sharder/api/v1"
 	"github.com/soggycactus/kube-shuffle-sharder/shuffleshard"
 	corev1 "k8s.io/api/core/v1"
@@ -24,9 +26,75 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
+
+var (
+	shuffleShardDuration = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:      "shuffle_shard_duration_seconds",
+			Namespace: PrometheusNamespace,
+			Buckets: []float64{
+				.025,
+				.050,
+				.100,
+				.150,
+				.200,
+				.300,
+				.400,
+				.500,
+				.750,
+				1,
+				2,
+				5,
+			},
+		},
+	)
+	nodeGroupSizeGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name:      "node_group_size",
+			Namespace: PrometheusNamespace,
+		},
+		[]string{"node_group"},
+	)
+	totalNodesGauge = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name:      "total_num_nodes",
+			Namespace: PrometheusNamespace,
+		},
+	)
+	totalNodeGroupsGauge = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: PrometheusNamespace,
+			Name:      "total_num_node_groups",
+		},
+	)
+	shuffleShardsUsedGauge = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name:      "num_shuffle_shards_used",
+			Namespace: PrometheusNamespace,
+		},
+	)
+	totalPossibleShards = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name:      "num_shuffle_shards_possible",
+			Namespace: PrometheusNamespace,
+		},
+	)
+)
+
+func init() {
+	metrics.Registry.MustRegister(
+		shuffleShardDuration,
+		nodeGroupSizeGauge,
+		totalNodesGauge,
+		totalNodeGroupsGauge,
+		shuffleShardsUsedGauge,
+		totalPossibleShards,
+	)
+}
 
 type NodeGroup struct {
 	NumNodes int
@@ -86,6 +154,8 @@ func (p *PodMutatingWebhook) StartInformer(ctx context.Context) error {
 		return err
 	}
 
+	go p.exportMetrics(stop)
+
 	logger.Info("cache synced, informer started")
 
 	<-stop
@@ -122,7 +192,8 @@ func (p *PodMutatingWebhook) AddFunc(obj interface{}) {
 	}
 
 	p.addNodeIfNotExists(*group, node.Name)
-
+	nodeGroupSizeGauge.With(prometheus.Labels{"node_group": *group}).Inc()
+	totalNodesGauge.Inc()
 	logger.Info("new node added", "name", node.Name, "group", group)
 }
 
@@ -149,6 +220,8 @@ func (p *PodMutatingWebhook) UpdateFunc(oldObj, newObj interface{}) {
 	p.addNodeIfNotExists(*newGroup, newNode.Name)
 	p.deleteNodeIfExists(*oldGroup, oldNode.Name)
 
+	nodeGroupSizeGauge.With(prometheus.Labels{"node_group": *newGroup}).Inc()
+	nodeGroupSizeGauge.With(prometheus.Labels{"node_group": *oldGroup}).Dec()
 	logger.Info("node moved to different group", "name", newNode.Name, "oldGroup", *oldGroup, "newGroup", *newGroup)
 }
 
@@ -164,6 +237,8 @@ func (p *PodMutatingWebhook) DeleteFunc(obj interface{}) {
 
 	p.deleteNodeIfExists(*group, node.Name)
 
+	nodeGroupSizeGauge.With(prometheus.Labels{"node_group": *group}).Dec()
+	totalNodesGauge.Dec()
 	logger.Info("node removed from group", "name", node.Name, "group", group)
 }
 
@@ -179,6 +254,7 @@ func (p *PodMutatingWebhook) addNodeIfNotExists(group, nodeName string) {
 				nodeName: {},
 			},
 		}
+		totalNodeGroupsGauge.Inc()
 		return
 	}
 
@@ -213,6 +289,7 @@ func (p *PodMutatingWebhook) deleteNodeIfExists(group, nodeName string) {
 
 	if nodeGroup.NumNodes == 0 {
 		delete(p.Cache, group)
+		totalNodeGroupsGauge.Dec()
 		return
 	}
 
@@ -334,6 +411,9 @@ func (p *PodMutatingWebhook) ShuffleShard(ctx context.Context, tenant string, nu
 	p.Mu.Lock()
 	defer p.Mu.Unlock()
 
+	timer := prometheus.NewTimer(shuffleShardDuration)
+	defer timer.ObserveDuration()
+
 	nodeGroups := []string{}
 	for key := range p.Cache {
 		nodeGroups = append(nodeGroups, key)
@@ -393,4 +473,69 @@ func (p *PodMutatingWebhook) ShardExists(ctx context.Context, shardHash string) 
 func (p *PodMutatingWebhook) SetupWithManager(mgr ctrl.Manager) error {
 	mgr.GetWebhookServer().Register("/mutate-v1-pod", &webhook.Admission{Handler: p, RecoverPanic: true})
 	return mgr.Add(p)
+}
+
+func (p *PodMutatingWebhook) exportMetrics(done <-chan struct{}) {
+	ticker := time.NewTicker(1 * time.Minute)
+	logger := log.FromContext(context.Background())
+
+	exportMetrics := func() {
+		combinations, err := Choose(len(p.Cache), p.NumNodeGroups)
+		if err != nil {
+			logger.Error(err, "failed to update total possible shards")
+		}
+
+		if combinations != nil {
+			totalPossibleShards.Set(float64(*combinations))
+		}
+
+		var shuffleShardList v1.ShuffleShardList
+		if err := p.Client.List(context.Background(), &shuffleShardList, &client.ListOptions{}); err != nil {
+			logger.Error(err, "failed to update total shards used")
+			return
+		}
+
+		shuffleShardsUsedGauge.Set(float64(len(shuffleShardList.Items)))
+	}
+
+	// initialize metrics
+	exportMetrics()
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			exportMetrics()
+		}
+	}
+}
+
+// Choose calculates n choose k - the number of possible combinations
+func Choose(n, k int) (*int, error) {
+	pointerInt := func(i int) *int {
+		return &i
+	}
+
+	if k > n {
+		return nil, fmt.Errorf("cannot have k (%d) greater than n (%d)", k, n)
+	}
+	if k < 0 {
+		return nil, fmt.Errorf("cannot have k (%d) less than 0", k)
+	}
+	if n <= 1 || k == 0 || n == k {
+		return pointerInt(1), nil
+	}
+	if newK := n - k; newK < k {
+		k = newK
+	}
+	if k == 1 {
+		return pointerInt(n), nil
+	}
+	// Our return value, and this allows us to skip the first iteration.
+	ret := n - k + 1
+	for i, j := ret+1, 2; j <= k; i, j = i+1, j+1 {
+		ret = ret * i / j
+	}
+	return pointerInt(ret), nil
 }

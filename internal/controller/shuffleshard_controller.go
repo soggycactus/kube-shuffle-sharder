@@ -81,11 +81,13 @@ func (r *ShuffleShardReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	shuffleShard.Status.ShardHash = hash
 
-	if err := r.Status().Update(ctx, &shuffleShard); err != nil {
-		logger.Error(err, "failed to update ShuffleShard")
-		return ctrl.Result{}, err
+	if shuffleShard.Status.ShardHash != hash {
+		shuffleShard.Status.ShardHash = hash
+		if err := r.Status().Update(ctx, &shuffleShard); err != nil {
+			logger.Error(err, "failed to update ShuffleShard")
+			return ctrl.Result{}, err
+		}
 	}
 
 	return ctrl.Result{}, nil

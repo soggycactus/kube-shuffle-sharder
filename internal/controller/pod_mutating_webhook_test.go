@@ -97,3 +97,13 @@ func TestEventHandlerFuncs(t *testing.T) {
 	p.DeleteFunc(newNode)
 	assert.Equal(t, 1, p.Cache["group-d"].NumNodes, "node should have been removed from group-d")
 }
+
+func TestChoose(t *testing.T) {
+	n := 100
+	k := 5
+	expected := 75287520
+
+	res, err := controller.Choose(n, k)
+	assert.Nil(t, err, "choose should not error")
+	assert.Equal(t, *res, expected, "result should match")
+}
