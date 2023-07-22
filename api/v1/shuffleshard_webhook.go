@@ -28,7 +28,9 @@ import (
 
 var ErrShuffleShardIsImmutable = errors.New("ShuffleShard is immutable")
 var ErrMissingTenant = errors.New("spec.tenant must not be empty")
-var ErrMissingNodeGroups = errors.New("spec.nodeGroups must contain at least 2 elements")
+var ErrNotEnoughNodeGroups = errors.New("spec.nodeGroups must contain at least 2 elements")
+var ErrEmptyNodeGroup = errors.New("spec.nodeGroups must not contain an empty string")
+var ErrDuplicateNodeGroups = errors.New("spec.nodeGroups must contain unique elements")
 
 // log is for logging in this package.
 var logger = logf.Log.WithName("shuffleshard-resource")
@@ -45,12 +47,25 @@ var _ webhook.Validator = &ShuffleShard{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (r *ShuffleShard) ValidateCreate() (admission.Warnings, error) {
+	logger.Info("validating create")
 	if r.Spec.Tenant == "" {
 		return nil, ErrMissingTenant
 	}
 
 	if len(r.Spec.NodeGroups) < 2 {
-		return nil, ErrMissingNodeGroups
+		return nil, ErrNotEnoughNodeGroups
+	}
+
+	set := make(map[string]struct{})
+	for _, group := range r.Spec.NodeGroups {
+		if group == "" {
+			return nil, ErrEmptyNodeGroup
+		}
+		set[group] = struct{}{}
+	}
+
+	if len(set) != len(r.Spec.NodeGroups) {
+		return nil, ErrDuplicateNodeGroups
 	}
 
 	return nil, nil
