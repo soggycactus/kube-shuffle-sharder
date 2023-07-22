@@ -1,11 +1,10 @@
+---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: shuffleshards.kube-shuffle-sharder.io
   annotations:
     controller-gen.kubebuilder.io/version: v0.12.0
-  labels:
-  {{- include "chart.labels" . | nindent 4 }}
+  name: shuffleshards.kube-shuffle-sharder.io
 spec:
   group: kube-shuffle-sharder.io
   names:
@@ -42,8 +41,8 @@ spec:
                   type: string
                 type: array
               tenant:
-                description: Tenant is a unique identifier representing the tenant to
-                  which a ShuffleShard is assigned
+                description: Tenant is a unique identifier representing the tenant
+                  to which a ShuffleShard is assigned
                 type: string
             required:
             - nodeGroups
@@ -64,9 +63,3 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
