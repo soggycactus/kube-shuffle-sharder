@@ -17,12 +17,18 @@ limitations under the License.
 package v1
 
 import (
+	"errors"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
+
+var ErrShuffleShardIsImmutable = errors.New("ShuffleShard is immutable")
+var ErrMissingTenant = errors.New("spec.tenant must not be empty")
+var ErrMissingNodeGroups = errors.New("spec.nodeGroups must contain at least 2 elements")
 
 // log is for logging in this package.
 var logger = logf.Log.WithName("shuffleshard-resource")
@@ -39,24 +45,23 @@ var _ webhook.Validator = &ShuffleShard{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (r *ShuffleShard) ValidateCreate() (admission.Warnings, error) {
-	logger.Info("validate create", "name", r.Name)
+	if r.Spec.Tenant == "" {
+		return nil, ErrMissingTenant
+	}
 
-	// TODO(user): fill in your validation logic upon object creation.
+	if len(r.Spec.NodeGroups) < 2 {
+		return nil, ErrMissingNodeGroups
+	}
+
 	return nil, nil
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *ShuffleShard) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
-	logger.Info("validate update", "name", r.Name)
-
-	// TODO(user): fill in your validation logic upon object update.
-	return nil, nil
+	return nil, ErrShuffleShardIsImmutable
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
 func (r *ShuffleShard) ValidateDelete() (admission.Warnings, error) {
-	logger.Info("validate delete", "name", r.Name)
-
-	// TODO(user): fill in your validation logic upon object deletion.
 	return nil, nil
 }
