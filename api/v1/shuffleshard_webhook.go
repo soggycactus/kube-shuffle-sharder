@@ -21,7 +21,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
@@ -31,9 +30,6 @@ var ErrMissingTenant = errors.New("spec.tenant must not be empty")
 var ErrNotEnoughNodeGroups = errors.New("spec.nodeGroups must contain at least 2 elements")
 var ErrEmptyNodeGroup = errors.New("spec.nodeGroups must not contain an empty string")
 var ErrDuplicateNodeGroups = errors.New("spec.nodeGroups must contain unique elements")
-
-// log is for logging in this package.
-var logger = logf.Log.WithName("shuffleshard-resource")
 
 func (r *ShuffleShard) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
@@ -47,7 +43,6 @@ var _ webhook.Validator = &ShuffleShard{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (r *ShuffleShard) ValidateCreate() (admission.Warnings, error) {
-	logger.Info("validating create")
 	if r.Spec.Tenant == "" {
 		return nil, ErrMissingTenant
 	}
