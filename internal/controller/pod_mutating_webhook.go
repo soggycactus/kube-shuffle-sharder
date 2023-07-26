@@ -460,11 +460,11 @@ func (p *PodMutatingWebhook) ShardExists(ctx context.Context, shardHash string) 
 // and adds the informer to the list of processes for manager to start
 func (p *PodMutatingWebhook) SetupWithManager(mgr ctrl.Manager) error {
 	mgr.GetWebhookServer().Register("/mutate-v1-pod", &webhook.Admission{Handler: p, RecoverPanic: true})
-	informer, err := mgr.GetCache().GetInformer(context.Background(), &corev1.Node{})
+	nodeInformer, err := mgr.GetCache().GetInformer(context.Background(), &corev1.Node{})
 	if err != nil {
 		return err
 	}
-	p.nodeInformer = informer
+	p.nodeInformer = nodeInformer
 	p.client = mgr.GetClient()
 	return mgr.Add(p)
 }
