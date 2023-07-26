@@ -18,7 +18,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -126,8 +125,6 @@ func (p *PodMutatingWebhook) StartInformer(ctx context.Context) error {
 	logger := log.FromContext(ctx)
 	stop := ctx.Done()
 
-	defer runtime.HandleCrash()
-
 	handle, err := p.nodeInformer.AddEventHandler(cache.FilteringResourceEventHandler{
 		FilterFunc: p.filterFunc,
 		Handler: cache.ResourceEventHandlerFuncs{
@@ -142,7 +139,6 @@ func (p *PodMutatingWebhook) StartInformer(ctx context.Context) error {
 
 	if !cache.WaitForCacheSync(stop, handle.HasSynced, p.nodeInformer.HasSynced) {
 		err := errors.New("Timed out waiting for caches to sync")
-		runtime.HandleError(err)
 		return err
 	}
 
