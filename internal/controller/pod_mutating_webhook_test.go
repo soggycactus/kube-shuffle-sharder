@@ -17,7 +17,7 @@ const (
 func TestEventHandlerFuncs(t *testing.T) {
 	p := controller.PodMutatingWebhook{
 		Mu:                          new(sync.Mutex),
-		Cache:                       make(controller.NodeGroupCollection),
+		NodeCache:                   make(controller.NodeGroupCollection),
 		NodeGroupAutoDiscoveryLabel: autoDiscoveryLabel,
 	}
 
@@ -68,10 +68,10 @@ func TestEventHandlerFuncs(t *testing.T) {
 		p.AddFunc(node)
 	}
 
-	assert.Equal(t, 1, p.Cache["group-a"].NumNodes, "node count should match")
-	assert.Equal(t, 2, p.Cache["group-b"].NumNodes, "node count should match")
-	assert.Equal(t, 1, p.Cache["group-c"].NumNodes, "node count should match")
-	assert.Equal(t, 1, p.Cache["group-d"].NumNodes, "node count should match")
+	assert.Equal(t, 1, p.NodeCache["group-a"].NumNodes, "node count should match")
+	assert.Equal(t, 2, p.NodeCache["group-b"].NumNodes, "node count should match")
+	assert.Equal(t, 1, p.NodeCache["group-c"].NumNodes, "node count should match")
+	assert.Equal(t, 1, p.NodeCache["group-d"].NumNodes, "node count should match")
 
 	oldNode := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
@@ -90,12 +90,12 @@ func TestEventHandlerFuncs(t *testing.T) {
 		},
 	}
 	p.UpdateFunc(oldNode, newNode)
-	_, ok := p.Cache["group-c"]
+	_, ok := p.NodeCache["group-c"]
 	assert.False(t, ok, "group-c should be missing")
-	assert.Equal(t, 2, p.Cache["group-d"].NumNodes, "node should have moved to group-d")
+	assert.Equal(t, 2, p.NodeCache["group-d"].NumNodes, "node should have moved to group-d")
 
 	p.DeleteFunc(newNode)
-	assert.Equal(t, 1, p.Cache["group-d"].NumNodes, "node should have been removed from group-d")
+	assert.Equal(t, 1, p.NodeCache["group-d"].NumNodes, "node should have been removed from group-d")
 }
 
 func TestChoose(t *testing.T) {

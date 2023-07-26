@@ -125,10 +125,8 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controller.PodMutatingWebhook{
-		Config:                      mgr.GetConfig(),
-		Client:                      mgr.GetClient(),
 		Mu:                          new(sync.Mutex),
-		Cache:                       make(controller.NodeGroupCollection),
+		NodeCache:                   make(controller.NodeGroupCollection),
 		NodeGroupAutoDiscoveryLabel: nodeGroupAutoDiscoveryLabel,
 		TenantLabel:                 tenantLabel,
 		NumNodeGroups:               numNodeGroups,

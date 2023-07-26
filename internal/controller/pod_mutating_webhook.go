@@ -19,11 +19,9 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/client-go/informers"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -106,14 +104,15 @@ type NodeGroupCollection map[string]NodeGroup
 // +kubebuilder:webhook:admissionReviewVersions=v1,sideEffects=None,path=/mutate-v1-pod,mutating=true,failurePolicy=fail,groups="",resources=pods,verbs=create;update,versions=v1,name=webhook.kube-shuffle-sharder.io
 
 type PodMutatingWebhook struct {
-	Config                      *rest.Config
-	Client                      client.Client
 	Mu                          *sync.Mutex
-	Cache                       NodeGroupCollection
+	NodeCache                   NodeGroupCollection
 	NodeGroupAutoDiscoveryLabel string
 	TenantLabel                 string
 	NumNodeGroups               int
 	Decoder                     *admission.Decoder
+
+	client       client.Client
+	nodeInformer ctrlcache.Informer
 }
 
 // Start fulfills the manager.Runnable interface,
@@ -125,18 +124,11 @@ func (p *PodMutatingWebhook) Start(ctx context.Context) error {
 
 func (p *PodMutatingWebhook) StartInformer(ctx context.Context) error {
 	logger := log.FromContext(ctx)
-
-	clientset := kubernetes.NewForConfigOrDie(p.Config)
-	factory := informers.NewSharedInformerFactory(clientset, 1*time.Minute)
-	nodeInformer := factory.Core().V1().Nodes().Informer()
-
 	stop := ctx.Done()
 
 	defer runtime.HandleCrash()
 
-	go factory.Start(stop)
-
-	handle, err := nodeInformer.AddEventHandler(cache.FilteringResourceEventHandler{
+	handle, err := p.nodeInformer.AddEventHandler(cache.FilteringResourceEventHandler{
 		FilterFunc: p.filterFunc,
 		Handler: cache.ResourceEventHandlerFuncs{
 			AddFunc:    p.AddFunc,
@@ -148,7 +140,7 @@ func (p *PodMutatingWebhook) StartInformer(ctx context.Context) error {
 		return err
 	}
 
-	if !cache.WaitForCacheSync(stop, handle.HasSynced, nodeInformer.HasSynced) {
+	if !cache.WaitForCacheSync(stop, handle.HasSynced, p.nodeInformer.HasSynced) {
 		err := errors.New("Timed out waiting for caches to sync")
 		runtime.HandleError(err)
 		return err
@@ -156,7 +148,7 @@ func (p *PodMutatingWebhook) StartInformer(ctx context.Context) error {
 
 	go p.exportMetrics(stop)
 
-	logger.Info("cache synced, informer started")
+	logger.Info("cache synced, informers started")
 
 	<-stop
 
@@ -245,10 +237,10 @@ func (p *PodMutatingWebhook) DeleteFunc(obj interface{}) {
 func (p *PodMutatingWebhook) addNodeIfNotExists(group, nodeName string) {
 	p.Mu.Lock()
 	defer p.Mu.Unlock()
-	nodeGroup, ok := p.Cache[group]
+	nodeGroup, ok := p.NodeCache[group]
 	// if the node group doesn't exist, create it & initialize it with the node
 	if !ok {
-		p.Cache[group] = NodeGroup{
+		p.NodeCache[group] = NodeGroup{
 			NumNodes: 1,
 			Nodes: map[string]struct{}{
 				nodeName: {},
@@ -266,14 +258,14 @@ func (p *PodMutatingWebhook) addNodeIfNotExists(group, nodeName string) {
 
 	nodeGroup.NumNodes += 1
 	nodeGroup.Nodes[nodeName] = struct{}{}
-	p.Cache[group] = nodeGroup
+	p.NodeCache[group] = nodeGroup
 }
 
 func (p *PodMutatingWebhook) deleteNodeIfExists(group, nodeName string) {
 	p.Mu.Lock()
 	defer p.Mu.Unlock()
 
-	nodeGroup, ok := p.Cache[group]
+	nodeGroup, ok := p.NodeCache[group]
 	// if the node group doesn't exist, return
 	if !ok {
 		return
@@ -288,12 +280,12 @@ func (p *PodMutatingWebhook) deleteNodeIfExists(group, nodeName string) {
 	delete(nodeGroup.Nodes, nodeName)
 
 	if nodeGroup.NumNodes == 0 {
-		delete(p.Cache, group)
+		delete(p.NodeCache, group)
 		totalNodeGroupsGauge.Dec()
 		return
 	}
 
-	p.Cache[group] = nodeGroup
+	p.NodeCache[group] = nodeGroup
 
 }
 
@@ -331,7 +323,7 @@ func (p *PodMutatingWebhook) Handle(ctx context.Context, req admission.Request) 
 	// Find the existing shard for the tenant, if it exists
 	shuffleShard := v1.ShuffleShard{}
 	// If the error is any error other than not found, return an error
-	if err = p.Client.Get(ctx, types.NamespacedName{Name: tenant}, &shuffleShard); client.IgnoreNotFound(err) != nil {
+	if err = p.client.Get(ctx, types.NamespacedName{Name: tenant}, &shuffleShard); client.IgnoreNotFound(err) != nil {
 		logger.Error(err, "failed to get ShuffleShard")
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
@@ -415,7 +407,7 @@ func (p *PodMutatingWebhook) ShuffleShard(ctx context.Context, tenant string, nu
 	defer timer.ObserveDuration()
 
 	nodeGroups := []string{}
-	for key := range p.Cache {
+	for key := range p.NodeCache {
 		nodeGroups = append(nodeGroups, key)
 	}
 
@@ -441,7 +433,7 @@ func (p *PodMutatingWebhook) ShuffleShard(ctx context.Context, tenant string, nu
 			NodeGroups: groups,
 		},
 	}
-	if err := p.Client.Create(ctx, &shuffleShard); err != nil {
+	if err := p.client.Create(ctx, &shuffleShard); err != nil {
 		return nil, err
 	}
 
@@ -450,7 +442,7 @@ func (p *PodMutatingWebhook) ShuffleShard(ctx context.Context, tenant string, nu
 
 func (p *PodMutatingWebhook) ShardExists(ctx context.Context, shardHash string) (bool, error) {
 	var shuffleShardList v1.ShuffleShardList
-	if err := p.Client.List(ctx, &shuffleShardList, &client.ListOptions{
+	if err := p.client.List(ctx, &shuffleShardList, &client.ListOptions{
 		FieldSelector: fields.SelectorFromSet(fields.Set{
 			"status.shardHash": shardHash,
 		}),
@@ -472,6 +464,12 @@ func (p *PodMutatingWebhook) ShardExists(ctx context.Context, shardHash string) 
 // and adds the informer to the list of processes for manager to start
 func (p *PodMutatingWebhook) SetupWithManager(mgr ctrl.Manager) error {
 	mgr.GetWebhookServer().Register("/mutate-v1-pod", &webhook.Admission{Handler: p, RecoverPanic: true})
+	informer, err := mgr.GetCache().GetInformer(context.Background(), &corev1.Node{})
+	if err != nil {
+		return err
+	}
+	p.nodeInformer = informer
+	p.client = mgr.GetClient()
 	return mgr.Add(p)
 }
 
@@ -480,7 +478,7 @@ func (p *PodMutatingWebhook) exportMetrics(done <-chan struct{}) {
 	logger := log.FromContext(context.Background())
 
 	exportMetrics := func() {
-		combinations, err := Choose(len(p.Cache), p.NumNodeGroups)
+		combinations, err := Choose(len(p.NodeCache), p.NumNodeGroups)
 		if err != nil {
 			logger.Error(err, "failed to update total possible shards")
 		}
@@ -490,7 +488,7 @@ func (p *PodMutatingWebhook) exportMetrics(done <-chan struct{}) {
 		}
 
 		var shuffleShardList v1.ShuffleShardList
-		if err := p.Client.List(context.Background(), &shuffleShardList, &client.ListOptions{}); err != nil {
+		if err := p.client.List(context.Background(), &shuffleShardList, &client.ListOptions{}); err != nil {
 			logger.Error(err, "failed to update total shards used")
 			return
 		}
