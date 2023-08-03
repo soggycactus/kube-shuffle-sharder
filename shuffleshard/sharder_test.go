@@ -33,6 +33,10 @@ func (m *MockShardStore) ShardExists(ctx context.Context, hash string) (bool, er
 	return true, nil
 }
 
+func (m *MockShardStore) ShardExistsWithEndpoints(ctx context.Context, endpoints []string) bool {
+	return false
+}
+
 func HashShard(shard []string) (string, error) {
 	shardCopy := make([]string, len(shard))
 	copy(shardCopy, shard)

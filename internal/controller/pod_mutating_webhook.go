@@ -105,13 +105,15 @@ type NodeGroupCollection map[string]NodeGroup
 type PodMutatingWebhook struct {
 	Mu                          *sync.Mutex
 	NodeCache                   NodeGroupCollection
+	EndpointGraph               *Graph
 	NodeGroupAutoDiscoveryLabel string
 	TenantLabel                 string
 	NumNodeGroups               int
 	Decoder                     *admission.Decoder
 
-	client       client.Client
-	nodeInformer ctrlcache.Informer
+	client        client.Client
+	nodeInformer  ctrlcache.Informer
+	shardInformer ctrlcache.Informer
 }
 
 // Start fulfills the manager.Runnable interface,
@@ -125,19 +127,40 @@ func (p *PodMutatingWebhook) StartInformer(ctx context.Context) error {
 	logger := log.FromContext(ctx)
 	stop := ctx.Done()
 
-	handle, err := p.nodeInformer.AddEventHandler(cache.FilteringResourceEventHandler{
-		FilterFunc: p.filterFunc,
-		Handler: cache.ResourceEventHandlerFuncs{
-			AddFunc:    p.AddFunc,
-			UpdateFunc: p.UpdateFunc,
-			DeleteFunc: p.DeleteFunc,
+	nodeHandle, err := p.nodeInformer.AddEventHandlerWithResyncPeriod(
+		cache.FilteringResourceEventHandler{
+			FilterFunc: p.nodeFilterFunc,
+			Handler: cache.ResourceEventHandlerFuncs{
+				AddFunc:    p.NodeAddFunc,
+				UpdateFunc: p.NodeUpdateFunc,
+				DeleteFunc: p.NodeDeleteFunc,
+			},
 		},
-	})
+		1*time.Minute,
+	)
 	if err != nil {
 		return err
 	}
 
-	if !cache.WaitForCacheSync(stop, handle.HasSynced, p.nodeInformer.HasSynced) {
+	shardHandle, err := p.shardInformer.AddEventHandlerWithResyncPeriod(
+		cache.ResourceEventHandlerFuncs{
+			AddFunc:    p.ShardAddFunc,
+			UpdateFunc: p.ShardUpdateFunc,
+			DeleteFunc: p.ShardDeleteFunc,
+		},
+		1*time.Minute,
+	)
+	if err != nil {
+		return err
+	}
+
+	if !cache.WaitForCacheSync(
+		stop,
+		nodeHandle.HasSynced,
+		shardHandle.HasSynced,
+		p.nodeInformer.HasSynced,
+		p.shardInformer.HasSynced,
+	) {
 		err := errors.New("Timed out waiting for caches to sync")
 		return err
 	}
@@ -151,7 +174,7 @@ func (p *PodMutatingWebhook) StartInformer(ctx context.Context) error {
 	return nil
 }
 
-func (p *PodMutatingWebhook) filterFunc(obj interface{}) bool {
+func (p *PodMutatingWebhook) nodeFilterFunc(obj interface{}) bool {
 	ctx := context.Background()
 	logger := log.FromContext(ctx)
 
@@ -169,7 +192,7 @@ func (p *PodMutatingWebhook) filterFunc(obj interface{}) bool {
 	return true
 }
 
-func (p *PodMutatingWebhook) AddFunc(obj interface{}) {
+func (p *PodMutatingWebhook) NodeAddFunc(obj interface{}) {
 	ctx := context.Background()
 	logger := log.FromContext(ctx)
 
@@ -185,7 +208,7 @@ func (p *PodMutatingWebhook) AddFunc(obj interface{}) {
 	logger.Info("new node added", "name", node.Name, "group", group)
 }
 
-func (p *PodMutatingWebhook) UpdateFunc(oldObj, newObj interface{}) {
+func (p *PodMutatingWebhook) NodeUpdateFunc(oldObj, newObj interface{}) {
 	ctx := context.Background()
 	logger := log.FromContext(ctx)
 
@@ -213,7 +236,7 @@ func (p *PodMutatingWebhook) UpdateFunc(oldObj, newObj interface{}) {
 	logger.Info("node moved to different group", "name", newNode.Name, "oldGroup", *oldGroup, "newGroup", *newGroup)
 }
 
-func (p *PodMutatingWebhook) DeleteFunc(obj interface{}) {
+func (p *PodMutatingWebhook) NodeDeleteFunc(obj interface{}) {
 	ctx := context.Background()
 	logger := log.FromContext(ctx)
 
@@ -297,6 +320,85 @@ func (p *PodMutatingWebhook) getGroupFromNode(obj interface{}) (*corev1.Node, *s
 	}
 
 	return node, &group, nil
+}
+
+func (p *PodMutatingWebhook) ShardAddFunc(obj interface{}) {
+	p.Mu.Lock()
+	defer p.Mu.Unlock()
+
+	ctx := context.Background()
+	logger := log.FromContext(ctx)
+
+	shard, err := p.getShardFromObject(obj)
+	if err != nil {
+		logger.Error(err, "failed to handle new shard")
+		return
+	}
+
+	for _, group := range shard.Spec.NodeGroups {
+		p.EndpointGraph.AddVertexIfNotExists(group)
+	}
+
+	for i := 0; i < len(shard.Spec.NodeGroups); i++ {
+		j := i + 1
+
+		for j < len(shard.Spec.NodeGroups) {
+			p.EndpointGraph.AddEdge(
+				shard.Spec.NodeGroups[i],
+				shard.Spec.NodeGroups[j],
+			)
+			j++
+		}
+	}
+}
+
+func (p *PodMutatingWebhook) ShardUpdateFunc(oldObj, newObj interface{}) {
+	ctx := context.Background()
+	logger := log.FromContext(ctx)
+	logger.Error(ErrShuffleShardUpdated, "ShuffleShards are immutable")
+}
+
+func (p *PodMutatingWebhook) ShardDeleteFunc(obj interface{}) {
+	p.Mu.Lock()
+	defer p.Mu.Unlock()
+
+	ctx := context.Background()
+	logger := log.FromContext(ctx)
+
+	shard, err := p.getShardFromObject(obj)
+	if err != nil {
+		logger.Error(err, "failed to handle new shard")
+		return
+	}
+
+	// first, remove the edges created from the shuffle shard
+	for i := 0; i < len(shard.Spec.NodeGroups); i++ {
+		j := i + 1
+
+		for j < len(shard.Spec.NodeGroups) {
+			p.EndpointGraph.DeleteEdge(
+				shard.Spec.NodeGroups[i],
+				shard.Spec.NodeGroups[j],
+			)
+			j++
+		}
+	}
+
+	// If no edges remain for the group, delete it from our graph
+	for _, group := range shard.Spec.NodeGroups {
+		if len(p.EndpointGraph.Vertices[group].Edges) == 0 {
+			delete(p.EndpointGraph.Vertices, group)
+		}
+	}
+}
+
+func (p *PodMutatingWebhook) getShardFromObject(obj interface{}) (*v1.ShuffleShard, error) {
+	shard, ok := obj.(*v1.ShuffleShard)
+	if !ok {
+		return nil, ErrUnableToCastShard
+	}
+
+	return shard, nil
 }
 
 func (p *PodMutatingWebhook) Handle(ctx context.Context, req admission.Request) admission.Response {
@@ -456,6 +558,25 @@ func (p *PodMutatingWebhook) ShardExists(ctx context.Context, shardHash string) 
 	return true, nil
 }
 
+func (p *PodMutatingWebhook) ShardExistsWithEndpoints(ctx context.Context, endpoints []string) bool {
+	if len(endpoints) == 0 {
+		return false
+	}
+
+	start, ok := p.EndpointGraph.Vertices[endpoints[0]]
+	if !ok {
+		return false
+	}
+
+	for _, endpoint := range endpoints[1:] {
+		if _, ok := start.Edges[endpoint]; !ok {
+			return false
+		}
+	}
+
+	return true
+}
+
 // SetupWithManager registers the handler with manager's webhook server
 // and adds the informer to the list of processes for manager to start
 func (p *PodMutatingWebhook) SetupWithManager(mgr ctrl.Manager) error {
@@ -465,6 +586,13 @@ func (p *PodMutatingWebhook) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 	p.nodeInformer = nodeInformer
+
+	shardInformer, err := mgr.GetCache().GetInformer(context.Background(), &v1.ShuffleShard{})
+	if err != nil {
+		return err
+	}
+	p.shardInformer = shardInformer
+
 	p.client = mgr.GetClient()
 	return mgr.Add(p)
 }

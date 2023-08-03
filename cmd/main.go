@@ -53,13 +53,16 @@ func init() {
 	//+kubebuilder:scaffold:scheme
 }
 
+var (
+	metricsAddr                 string
+	enableLeaderElection        bool
+	probeAddr                   string
+	nodeGroupAutoDiscoveryLabel string
+	tenantLabel                 string
+	numNodeGroups               int
+)
+
 func main() {
-	var metricsAddr string
-	var enableLeaderElection bool
-	var probeAddr string
-	var nodeGroupAutoDiscoveryLabel string
-	var tenantLabel string
-	var numNodeGroups int
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
@@ -127,6 +130,7 @@ func main() {
 	if err = (&controller.PodMutatingWebhook{
 		Mu:                          new(sync.Mutex),
 		NodeCache:                   make(controller.NodeGroupCollection),
+		EndpointGraph:               controller.NewGraph(),
 		NodeGroupAutoDiscoveryLabel: nodeGroupAutoDiscoveryLabel,
 		TenantLabel:                 tenantLabel,
 		NumNodeGroups:               numNodeGroups,

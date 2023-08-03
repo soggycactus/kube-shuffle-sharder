@@ -8,9 +8,11 @@ import (
 
 var ErrNoShardsAvailable = errors.New("no shards available")
 var ErrShardAlreadyExists = errors.New("shard already exists")
+var ErrTooManyOverlaps = errors.New("shard has too many overlapping endpoints")
 
-type ShardStore interface {
+type ShardStore[T any] interface {
 	ShardExists(ctx context.Context, shardHash string) (bool, error)
+	ShardExistsWithEndpoints(ctx context.Context, endpoints []T) bool
 }
 
 type Sharder[T any] struct {
@@ -23,7 +25,7 @@ type Sharder[T any] struct {
 	// ShardStore is a storage of all existing shuffle shards.
 	// Sharder queries this store to ensure that a shuffle shard isn't allocated twice.
 	// ShuffleShards are stored by a unique, deterministic key; a hash of the shard.
-	ShardStore ShardStore
+	ShardStore ShardStore[T]
 
 	// ShardKeyFunc is a function that receives a shuffle shard & returns a hash of its value.
 	// It is used to lookup a shard for existence in the ShardStore.
@@ -77,4 +79,64 @@ func (s *Sharder[T]) backtrack(ctx context.Context, cursor, endpoints []T) ([]T,
 	}
 
 	return nil, ErrNoShardsAvailable
+}
+
+func (s *Sharder[T]) ShuffleShardWithoutOverlap(ctx context.Context, maxOverlap int) ([]T, error) {
+	// Shuffle the order of endpoints for better performance
+	s.Rand.Shuffle(len(s.Endpoints), func(i, j int) {
+		s.Endpoints[i], s.Endpoints[j] = s.Endpoints[j], s.Endpoints[i]
+	})
+	return s.backtrackWithoutOverlap(ctx, []T{}, s.Endpoints, maxOverlap)
+}
+
+func (s *Sharder[T]) backtrackWithoutOverlap(ctx context.Context, cursor, endpoints []T, maxOverlap int) ([]T, error) {
+	if len(cursor) >= maxOverlap {
+		combinations := s.combinations(cursor, maxOverlap)
+
+		for _, combo := range combinations {
+			if ok := s.ShardStore.ShardExistsWithEndpoints(context.Background(), combo); ok {
+				return nil, ErrTooManyOverlaps
+			}
+		}
+	}
+
+	if len(cursor) == s.ReplicationFactor {
+		hash, err := s.ShardKeyFunc(cursor)
+		if err != nil {
+			return nil, err
+		}
+
+		ok, err := s.ShardStore.ShardExists(ctx, hash)
+		if err != nil {
+			return nil, err
+		}
+
+		if ok {
+			return nil, ErrShardAlreadyExists
+		}
+
+		return cursor, nil
+	}
+
+	for index, endpoint := range endpoints {
+		// only pass the remaining available endpoints further down the stack
+		newEndpoints := make([]T, len(endpoints)-(index+1))
+		copy(newEndpoints, endpoints[index+1:])
+
+		// add the current endpoint to the cursor
+		cursor = append(cursor, endpoint)
+		result, err := s.backtrack(ctx, cursor, newEndpoints)
+		if err != nil {
+			cursor = cursor[:len(cursor)-1]
+			continue
+		}
+
+		return result, nil
+	}
+
+	return nil, ErrNoShardsAvailable
+}
+
+func (s *Sharder[T]) combinations(cursor []T, size int) [][]T {
+	return nil
 }
