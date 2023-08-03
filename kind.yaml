@@ -3,5 +3,17 @@ apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
 - role: worker
+  labels:
+    kube-shuffle-sharder.io/node-group: "group-a"
 - role: worker
+  labels:
+    kube-shuffle-sharder.io/node-group: "group-b"
 - role: worker
+  labels:
+    kube-shuffle-sharder.io/node-group: "group-b"
+- role: worker
+  labels:
+    kube-shuffle-sharder.io/node-group: "group-c"
+- role: worker
+  labels:
+    kube-shuffle-sharder.io/node-group: "group-d"

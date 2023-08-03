@@ -71,7 +71,7 @@ build: manifests generate fmt vet ## Build manager binary.
 	go build -race -o bin/manager cmd/main.go
 
 .PHONY: run
-run: manifests generate fmt vet ## Run a controller from your host.
+run: manifests generate fmt vet install ## Run a controller from your host.
 	CERT_DIRECTORY=$(CAROOT) go run ./cmd/main.go
 
 # If you wish built the manager image targeting other platforms you can use the --platform flag.
@@ -109,12 +109,14 @@ ifndef ignore-not-found
 endif
 
 .PHONY: install
-install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
-	@$(KUSTOMIZE) build config/crd | $(KUBECTL) apply -f -
+install: manifests ## Install CRDs into the K8s cluster specified in ~/.kube/config.
+	$(KUBECTL) apply -f chart/crds
+	$(KUBECTL) apply -f local/webhook.yaml
 
 .PHONY: uninstall
-uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	@$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+uninstall: manifests ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f chart/crds
+	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f local/webhook.yaml
 
 ##@ Build Dependencies
 
@@ -125,22 +127,11 @@ $(LOCALBIN):
 
 ## Tool Binaries
 KUBECTL ?= kubectl
-KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 
 ## Tool Versions
-KUSTOMIZE_VERSION ?= v5.0.1
 CONTROLLER_TOOLS_VERSION ?= v0.12.0
-
-.PHONY: kustomize
-kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary. If wrong version is installed, it will be removed before downloading.
-$(KUSTOMIZE): $(LOCALBIN)
-	@if test -x $(LOCALBIN)/kustomize && ! $(LOCALBIN)/kustomize version | grep -q $(KUSTOMIZE_VERSION); then \
-		echo "$(LOCALBIN)/kustomize version is not expected $(KUSTOMIZE_VERSION). Removing it before installing."; \
-		rm -rf $(LOCALBIN)/kustomize; \
-	fi
-	@test -s $(LOCALBIN)/kustomize || GOBIN=$(LOCALBIN) GO111MODULE=on go install sigs.k8s.io/kustomize/kustomize/v5@$(KUSTOMIZE_VERSION)
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary. If wrong version is installed, it will be overwritten.
@@ -148,7 +139,7 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 	@test -s $(LOCALBIN)/controller-gen && $(LOCALBIN)/controller-gen --version | grep -q $(CONTROLLER_TOOLS_VERSION) || \
 	GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION)
 
-CAROOT ?= $(shell pwd)/certs
+CAROOT ?= $(shell pwd)/local/certs
 $(CAROOT):
 	mkdir -p $(CAROOT)
 

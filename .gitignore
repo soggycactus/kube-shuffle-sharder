@@ -32,3 +32,6 @@ vendor/
 # local test manifests
 nodes.yaml
 pod.yaml
+
+# helm subcharts
+chart/charts
