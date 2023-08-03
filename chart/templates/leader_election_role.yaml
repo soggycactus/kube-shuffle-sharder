@@ -2,14 +2,8 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  labels:
-    app.kubernetes.io/name: role
-    app.kubernetes.io/instance: leader-election-role
-    app.kubernetes.io/component: rbac
-    app.kubernetes.io/created-by: kube-shuffle-sharder
-    app.kubernetes.io/part-of: kube-shuffle-sharder
-    app.kubernetes.io/managed-by: kustomize
-  name: leader-election-role
+  labels: {{ include "commonLabels" . | nindent 4 }}
+  name: kube-shuffle-sharder-leader-election
 rules:
 - apiGroups:
   - ""
@@ -36,7 +30,7 @@ rules:
   - patch
   - delete
 - apiGroups:
-  - ""
+  - v1
   resources:
   - events
   verbs:

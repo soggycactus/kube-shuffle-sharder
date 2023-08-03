@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels: {{ include "commonLabels" . | nindent 4 }}
+  name: kube-shuffle-sharder
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    - name: webhook-server
+      port: 443
+      protocol: TCP
+      targetPort: webhook-server
+    - name: metrics-probe
+      port: 8080
+      protocol: TCP
+      targetPort: metrics-probe
+    - name: health-probe
+      port: 8081
+      protocol: TCP
+      targetPort: health-probe
+  selector:
+    {{- include "selectorLabels" . | nindent 4 }}

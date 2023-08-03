@@ -1,3 +1,11 @@
 # More info: https://docs.docker.com/engine/reference/builder/#dockerignore-file
 # Ignore build and test binaries.
 bin/
+certs/
+.vscode
+chart/
+vendor/
+hack/
+Makefile
+PROJECT
+README.md

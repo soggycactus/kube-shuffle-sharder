@@ -1,0 +1,13 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels: {{ include "commonLabels" . | nindent 4 }}
+  name: kube-shuffle-sharder
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kube-shuffle-sharder-leader-election
+subjects:
+- kind: ServiceAccount
+  name: kube-shuffle-sharder
+  namespace: {{ .Release.Namespace }}

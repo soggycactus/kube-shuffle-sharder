@@ -1,0 +1,47 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kube-shuffle-sharder
+  labels: {{ include "commonLabels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - kube-shuffle-sharder.io
+  resources:
+  - shuffleshards
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kube-shuffle-sharder.io
+  resources:
+  - shuffleshards/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kube-shuffle-sharder.io
+  resources:
+  - shuffleshards/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
