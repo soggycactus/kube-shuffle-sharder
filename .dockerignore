@@ -9,3 +9,4 @@ hack/
 Makefile
 PROJECT
 README.md
+e2e/

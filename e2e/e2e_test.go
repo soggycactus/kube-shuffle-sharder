@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	kubeshufflesharderiov1 "github.com/soggycactus/kube-shuffle-sharder/api/v1"
+	"github.com/soggycactus/kube-shuffle-sharder/shuffleshard"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -112,6 +113,56 @@ func TestE2E(t *testing.T) {
 		assert.ErrorContains(t, clientset.Update(ctx, &shard), kubeshufflesharderiov1.ErrShuffleShardIsImmutable.Error(), "ShuffleShard should be immutable")
 	}
 
+	// create an additional pod for a tenant & assert that they have the same shuffle shard
+	extraPod := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-2", tenants[0]),
+			Namespace: namespace,
+			Labels: map[string]string{
+				tenantLabel: tenants[0],
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  tenants[0],
+					Image: podImage,
+				},
+			},
+		},
+	}
+	assert.NoError(t, clientset.Create(ctx, &extraPod), "pod creation should succeed")
+	assert.NoError(t, clientset.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-2", tenants[0]), Namespace: namespace}, &extraPod), "should be able to get pod")
+	var originalPod corev1.Pod
+	assert.NoError(t, clientset.Get(ctx, types.NamespacedName{Name: tenants[0], Namespace: namespace}, &originalPod), "should be able to get pod")
+	assert.Equal(
+		t,
+		originalPod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms,
+		extraPod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms,
+		"selector terms should match",
+	)
+
+	// try to create another tenant & assert that no shards are left
+	newTenant := fmt.Sprintf("tenant-%d", numTenants)
+	newTenantPod := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      newTenant,
+			Namespace: namespace,
+			Labels: map[string]string{
+				tenantLabel: newTenant,
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  newTenant,
+					Image: podImage,
+				},
+			},
+		},
+	}
+	assert.ErrorContains(t, clientset.Create(ctx, &newTenantPod), shuffleshard.ErrNoShardsAvailable.Error(), "should not be able create another ShuffleShard")
+
 	// clean up pods
 	var podList corev1.PodList
 	assert.NoError(t, clientset.List(ctx, &podList, &client.ListOptions{Namespace: namespace}))
@@ -122,6 +173,7 @@ func TestE2E(t *testing.T) {
 	// clean up shuffleshards
 	var shardList kubeshufflesharderiov1.ShuffleShardList
 	assert.NoError(t, clientset.List(ctx, &shardList))
+	assert.Len(t, shardList.Items, numShardsPossible, "should match total possible shards")
 	for _, shard := range shardList.Items {
 		assert.NoError(t, clientset.Delete(ctx, &shard))
 	}
