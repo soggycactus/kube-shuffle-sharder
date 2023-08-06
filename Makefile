@@ -1,8 +1,6 @@
 
 # Image URL to use all building/pushing image targets
 IMG ?= controller:latest
-# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.27.1
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -72,7 +70,7 @@ view-coverage: test
 
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
-	go build -race -o bin/manager cmd/main.go
+	@go build -race -o bin/manager cmd/main.go
 
 .PHONY: run
 run: manifests generate fmt vet install ## Run a controller from your host.
@@ -132,7 +130,6 @@ $(LOCALBIN):
 ## Tool Binaries
 KUBECTL ?= kubectl
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
-ENVTEST ?= $(LOCALBIN)/setup-envtest
 
 ## Tool Versions
 CONTROLLER_TOOLS_VERSION ?= v0.12.0
