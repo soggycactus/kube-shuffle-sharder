@@ -82,6 +82,7 @@ func (r *ShuffleShardReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
+	// Don't even check for differences in the spec, because ShuffleShards are immutable
 	if shuffleShard.Status.ShardHash != hash {
 		shuffleShard.Status.ShardHash = hash
 		if err := r.Status().Update(ctx, &shuffleShard); err != nil {

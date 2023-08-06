@@ -18,6 +18,7 @@ package v1
 
 import (
 	"errors"
+	"reflect"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -30,6 +31,7 @@ var ErrMissingTenant = errors.New("spec.tenant must not be empty")
 var ErrNotEnoughNodeGroups = errors.New("spec.nodeGroups must contain at least 2 elements")
 var ErrEmptyNodeGroup = errors.New("spec.nodeGroups must not contain an empty string")
 var ErrDuplicateNodeGroups = errors.New("spec.nodeGroups must contain unique elements")
+var ErrCannotCastToShard = errors.New("cannot cast object to shard")
 
 func (r *ShuffleShard) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
@@ -68,7 +70,16 @@ func (r *ShuffleShard) ValidateCreate() (admission.Warnings, error) {
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *ShuffleShard) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
-	return nil, ErrShuffleShardIsImmutable
+	shard, ok := old.(*ShuffleShard)
+	if !ok {
+		return nil, ErrCannotCastToShard
+	}
+
+	if !reflect.DeepEqual(shard.Spec, r.Spec) {
+		return nil, ErrShuffleShardIsImmutable
+	}
+
+	return nil, nil
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type

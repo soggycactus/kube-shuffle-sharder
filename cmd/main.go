@@ -60,6 +60,7 @@ var (
 	nodeGroupAutoDiscoveryLabel string
 	tenantLabel                 string
 	numNodeGroups               int
+	maxOverlap                  int
 )
 
 func main() {
@@ -71,6 +72,7 @@ func main() {
 	flag.StringVar(&nodeGroupAutoDiscoveryLabel, "node-group-auto-discovery-label", "kube-shuffle-sharder.io/node-group", "The label to inspect on nodes to determine node group membership.")
 	flag.StringVar(&tenantLabel, "tenant-label", "kube-shuffle-sharder.io/tenant", "The label to inspect on pods to determine the tenant.")
 	flag.IntVar(&numNodeGroups, "num-node-groups", 2, "The number of node groups to assign each shuffle shard.")
+	flag.IntVar(&maxOverlap, "max-overlap", -1, "The number of node groups each shuffle shard is allowed to share with other shuffle shards.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -80,6 +82,12 @@ func main() {
 	// Don't allow fewer than 2 node groups, since that defeats the purpose of shuffle sharding
 	if numNodeGroups < 2 {
 		setupLog.Error(fmt.Errorf("invalid number of node groups, got %d, must be at least 2", numNodeGroups), "unable to start manager")
+		os.Exit(1)
+	}
+
+	// maxOverlap must between -1 & numNodeGroups inclusive
+	if !(-1 <= maxOverlap && maxOverlap <= numNodeGroups) {
+		setupLog.Error(fmt.Errorf("max-overlap must be between 0 and num-node-groups if specified; got %d", maxOverlap), "unable to start manager")
 		os.Exit(1)
 	}
 
@@ -134,6 +142,7 @@ func main() {
 		NodeGroupAutoDiscoveryLabel: nodeGroupAutoDiscoveryLabel,
 		TenantLabel:                 tenantLabel,
 		NumNodeGroups:               numNodeGroups,
+		MaxOverlap:                  maxOverlap,
 		Decoder:                     admission.NewDecoder(scheme),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "PodMutatingWebhook")

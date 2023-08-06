@@ -109,6 +109,7 @@ type PodMutatingWebhook struct {
 	NodeGroupAutoDiscoveryLabel string
 	TenantLabel                 string
 	NumNodeGroups               int
+	MaxOverlap                  int
 	Decoder                     *admission.Decoder
 
 	client        client.Client
@@ -127,7 +128,7 @@ func (p *PodMutatingWebhook) StartInformer(ctx context.Context) error {
 	logger := log.FromContext(ctx)
 	stop := ctx.Done()
 
-	nodeHandle, err := p.nodeInformer.AddEventHandlerWithResyncPeriod(
+	nodeHandle, err := p.nodeInformer.AddEventHandler(
 		cache.FilteringResourceEventHandler{
 			FilterFunc: p.nodeFilterFunc,
 			Handler: cache.ResourceEventHandlerFuncs{
@@ -136,19 +137,16 @@ func (p *PodMutatingWebhook) StartInformer(ctx context.Context) error {
 				DeleteFunc: p.NodeDeleteFunc,
 			},
 		},
-		1*time.Minute,
 	)
 	if err != nil {
 		return err
 	}
 
-	shardHandle, err := p.shardInformer.AddEventHandlerWithResyncPeriod(
+	shardHandle, err := p.shardInformer.AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    p.ShardAddFunc,
-			UpdateFunc: p.ShardUpdateFunc,
 			DeleteFunc: p.ShardDeleteFunc,
 		},
-		1*time.Minute,
 	)
 	if err != nil {
 		return err
@@ -352,12 +350,6 @@ func (p *PodMutatingWebhook) ShardAddFunc(obj interface{}) {
 	}
 }
 
-func (p *PodMutatingWebhook) ShardUpdateFunc(oldObj, newObj interface{}) {
-	ctx := context.Background()
-	logger := log.FromContext(ctx)
-	logger.Error(ErrShuffleShardUpdated, "ShuffleShards are immutable")
-}
-
 func (p *PodMutatingWebhook) ShardDeleteFunc(obj interface{}) {
 	p.Mu.Lock()
 	defer p.Mu.Unlock()
@@ -517,9 +509,22 @@ func (p *PodMutatingWebhook) ShuffleShard(ctx context.Context, tenant string, nu
 		Rand:              rand.New(rand.NewSource(time.Now().Unix())),
 	}
 
-	groups, err := sharder.ShuffleShard(ctx)
-	if err != nil {
-		return nil, err
+	var groups []string
+
+	if p.MaxOverlap == -1 {
+		result, err := sharder.ShuffleShard(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		groups = result
+	} else {
+		result, err := sharder.ShuffleShardWithoutOverlap(ctx, p.MaxOverlap)
+		if err != nil {
+			return nil, err
+		}
+
+		groups = result
 	}
 
 	shuffleShard := v1.ShuffleShard{
