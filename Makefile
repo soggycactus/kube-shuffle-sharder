@@ -1,6 +1,6 @@
 
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= kube-shuffle-sharder:latest
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -59,7 +59,7 @@ vet: ## Run go vet against code.
 	@go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet ## Run tests.
+test: manifests generate fmt vet helm-install ## Run tests.
 	@go test -race -v ./... -coverprofile cover.out
 
 view-coverage: test
@@ -79,7 +79,7 @@ run: manifests generate fmt vet install ## Run a controller from your host.
 # (i.e. docker build --platform linux/arm64 ). However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
-docker-build: test ## Build docker image with the manager.
+docker-build: ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build -t ${IMG} .
 
 .PHONY: docker-push
@@ -109,6 +109,10 @@ ifndef ignore-not-found
   ignore-not-found = false
 endif
 
+.PHONY: cluster
+cluster: kind
+	-@$(KIND) create cluster --config kind.yaml 2>/dev/null || true
+
 .PHONY: install
 install: manifests ## Install CRDs into the K8s cluster specified in ~/.kube/config.
 	@$(KUBECTL) apply -f chart/crds
@@ -118,6 +122,16 @@ install: manifests ## Install CRDs into the K8s cluster specified in ~/.kube/con
 uninstall: manifests ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	@$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f chart/crds
 	@$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f local/webhook.yaml
+
+.PHONY: helm-install
+helm-install: cluster docker-build
+	@$(KIND) load docker-image ${IMG}
+	helm upgrade -i kube-shuffle-sharder chart
+	@sleep 10
+
+.PHONY: helm-uninstall
+helm-uninstall: cluster
+	helm uninstall kube-shuffle-sharder
 
 ##@ Build Dependencies
 
@@ -129,15 +143,23 @@ $(LOCALBIN):
 ## Tool Binaries
 KUBECTL ?= kubectl
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
+KIND ?= $(LOCALBIN)/kind
 
 ## Tool Versions
 CONTROLLER_TOOLS_VERSION ?= v0.12.0
+KIND_VERSION ?= v0.20.0
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary. If wrong version is installed, it will be overwritten.
 $(CONTROLLER_GEN): $(LOCALBIN)
 	@test -s $(LOCALBIN)/controller-gen && $(LOCALBIN)/controller-gen --version | grep -q $(CONTROLLER_TOOLS_VERSION) || \
 	GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION)
+
+.PHONY: kind
+kind: $(KIND) ## Download kind locally if necessary. If wrong version is installed, it will be overwritten.
+$(KIND): $(LOCALBIN)
+	@test -s $(LOCALBIN)/kind && $(LOCALBIN)/kind --version | grep -q $(KIND_VERSION) || \
+	GOBIN=$(LOCALBIN) go install sigs.k8s.io/kind@$(KIND_VERSION)
 
 CAROOT ?= $(shell pwd)/local/certs
 $(CAROOT):

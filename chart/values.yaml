@@ -1,3 +1,10 @@
+image:
+  repository: kube-shuffle-sharder
+  tag: latest
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
 nodeGroupAutoDiscoveryLabel: "kube-shuffle-sharder.io/node-group"
 tenantLabel: kube-shuffle-sharder.io/tenant
 numNodeGroups: 2
