@@ -12,7 +12,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	v1 "github.com/soggycactus/kube-shuffle-sharder/api/v1"
-	"github.com/soggycactus/kube-shuffle-sharder/shuffleshard"
+	"github.com/soggycactus/kube-shuffle-sharder/pkg/graph"
+	"github.com/soggycactus/kube-shuffle-sharder/pkg/shuffleshard"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -105,7 +106,7 @@ type NodeGroupCollection map[string]NodeGroup
 type PodMutatingWebhook struct {
 	Mu                          *sync.Mutex
 	NodeCache                   NodeGroupCollection
-	EndpointGraph               *Graph[string]
+	EndpointGraph               *graph.Graph[string]
 	NodeGroupAutoDiscoveryLabel string
 	TenantLabel                 string
 	NumNodeGroups               int
@@ -142,22 +143,28 @@ func (p *PodMutatingWebhook) StartInformer(ctx context.Context) error {
 		return err
 	}
 
-	shardHandle, err := p.shardInformer.AddEventHandler(
-		cache.ResourceEventHandlerFuncs{
-			AddFunc:    p.ShardAddFunc,
-			DeleteFunc: p.ShardDeleteFunc,
-		},
-	)
-	if err != nil {
-		return err
+	cacheSyncs := []cache.InformerSynced{
+		nodeHandle.HasSynced,
+		p.nodeInformer.HasSynced,
+	}
+
+	if p.MaxOverlap != -1 {
+		shardHandle, err := p.shardInformer.AddEventHandler(
+			cache.ResourceEventHandlerFuncs{
+				AddFunc:    p.ShardAddFunc,
+				DeleteFunc: p.ShardDeleteFunc,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		cacheSyncs = append(cacheSyncs, shardHandle.HasSynced, p.shardInformer.HasSynced)
 	}
 
 	if !cache.WaitForCacheSync(
 		stop,
-		nodeHandle.HasSynced,
-		shardHandle.HasSynced,
-		p.nodeInformer.HasSynced,
-		p.shardInformer.HasSynced,
+		cacheSyncs...,
 	) {
 		err := errors.New("Timed out waiting for caches to sync")
 		return err
@@ -558,22 +565,7 @@ func (p *PodMutatingWebhook) ShardExists(ctx context.Context, shardHash string) 
 }
 
 func (p *PodMutatingWebhook) ShardExistsWithEndpoints(ctx context.Context, endpoints []string) bool {
-	if len(endpoints) == 0 {
-		return false
-	}
-
-	start, ok := p.EndpointGraph.Vertices[endpoints[0]]
-	if !ok {
-		return false
-	}
-
-	for _, endpoint := range endpoints[1:] {
-		if _, ok := start.Edges[endpoint]; !ok {
-			return false
-		}
-	}
-
-	return true
+	return p.EndpointGraph.Neighbors(endpoints)
 }
 
 // SetupWithManager registers the handler with manager's webhook server
@@ -601,13 +593,15 @@ func (p *PodMutatingWebhook) exportMetrics(done <-chan struct{}) {
 	logger := log.FromContext(context.Background())
 
 	exportMetrics := func() {
-		combinations, err := Choose(len(p.NodeCache), p.NumNodeGroups)
-		if err != nil {
-			logger.Error(err, "failed to update total possible shards")
-		}
+		if p.MaxOverlap == -1 {
+			combinations, err := Choose(len(p.NodeCache), p.NumNodeGroups)
+			if err != nil {
+				logger.Error(err, "failed to update total possible shards")
+			}
 
-		if combinations != nil {
-			totalPossibleShards.Set(float64(*combinations))
+			if combinations != nil {
+				totalPossibleShards.Set(float64(*combinations))
+			}
 		}
 
 		var shuffleShardList v1.ShuffleShardList

@@ -7,6 +7,7 @@ import (
 
 	v1 "github.com/soggycactus/kube-shuffle-sharder/api/v1"
 	"github.com/soggycactus/kube-shuffle-sharder/internal/controller"
+	"github.com/soggycactus/kube-shuffle-sharder/pkg/graph"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -104,7 +105,7 @@ func TestNodeEventHandlerFuncs(t *testing.T) {
 func TestShardHandlerFuncs(t *testing.T) {
 	p := controller.PodMutatingWebhook{
 		Mu:            new(sync.Mutex),
-		EndpointGraph: controller.NewGraph[string](),
+		EndpointGraph: graph.NewGraph[string](),
 	}
 
 	shuffleShards := []*v1.ShuffleShard{
@@ -154,69 +155,69 @@ func TestShardHandlerFuncs(t *testing.T) {
 	}
 
 	// group-a has shards ade & cda
-	assert.Equal(t, 3, len(p.EndpointGraph.Vertices["group-a"].Edges), "number of edges should match")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-a"].Edges, "group-c")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-a"].Edges, "group-d")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-a"].Edges, "group-e")
+	assert.Equal(t, 3, p.EndpointGraph.NumEdges("group-a"), "number of edges should match")
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-a", "group-c"}))
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-a", "group-d"}))
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-a", "group-e"}))
 
 	// group-b has shard bcf
-	assert.Equal(t, 2, len(p.EndpointGraph.Vertices["group-b"].Edges), "number of edges should match")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-b"].Edges, "group-c")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-b"].Edges, "group-f")
+	assert.Equal(t, 2, p.EndpointGraph.NumEdges("group-b"), "number of edges should match")
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-b", "group-c"}))
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-b", "group-f"}))
 
 	// group-c has shards bcf & cda
-	assert.Equal(t, 4, len(p.EndpointGraph.Vertices["group-c"].Edges), "number of edges should match")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-c"].Edges, "group-a")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-c"].Edges, "group-b")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-c"].Edges, "group-d")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-c"].Edges, "group-f")
+	assert.Equal(t, 4, p.EndpointGraph.NumEdges("group-c"), "number of edges should match")
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-c", "group-a"}))
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-c", "group-b"}))
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-c", "group-d"}))
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-c", "group-f"}))
 
 	// group-d has shards ade & cda
-	assert.Equal(t, 3, len(p.EndpointGraph.Vertices["group-d"].Edges), "number of edges should match")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-d"].Edges, "group-a")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-d"].Edges, "group-c")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-d"].Edges, "group-e")
+	assert.Equal(t, 3, p.EndpointGraph.NumEdges("group-d"), "number of edges should match")
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-d", "group-a"}))
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-d", "group-c"}))
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-d", "group-e"}))
 
 	// group-e has shard ade
-	assert.Equal(t, 2, len(p.EndpointGraph.Vertices["group-e"].Edges), "number of edges should match")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-e"].Edges, "group-a")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-e"].Edges, "group-d")
+	assert.Equal(t, 2, p.EndpointGraph.NumEdges("group-e"), "number of edges should match")
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-e", "group-a"}))
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-e", "group-d"}))
 
 	// group-f has shard bcf
-	assert.Equal(t, 2, len(p.EndpointGraph.Vertices["group-f"].Edges), "number of edges should match")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-f"].Edges, "group-b")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-f"].Edges, "group-c")
+	assert.Equal(t, 2, p.EndpointGraph.NumEdges("group-f"), "number of edges should match")
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-f", "group-b"}))
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-f", "group-c"}))
 
 	// Delete shard bcf
 	p.ShardDeleteFunc(shuffleShards[0])
 
 	// group-a has shards ade & cda
-	assert.Equal(t, 3, len(p.EndpointGraph.Vertices["group-a"].Edges), "number of edges should match")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-a"].Edges, "group-c")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-a"].Edges, "group-d")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-a"].Edges, "group-e")
+	assert.Equal(t, 3, p.EndpointGraph.NumEdges("group-a"), "number of edges should match")
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-a", "group-c"}))
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-a", "group-d"}))
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-a", "group-e"}))
 
 	// group-b no longer exists
-	assert.NotContains(t, p.EndpointGraph.Vertices, "group-b", "endpoint should not exist")
+	assert.False(t, p.EndpointGraph.VertexExists("group-b"), "endpoint should not exist")
 
 	// group-c has shard cda
-	assert.Equal(t, 2, len(p.EndpointGraph.Vertices["group-c"].Edges), "number of edges should match")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-c"].Edges, "group-a")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-c"].Edges, "group-d")
+	assert.Equal(t, 2, p.EndpointGraph.NumEdges("group-c"), "number of edges should match")
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-c", "group-a"}))
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-c", "group-d"}))
 
 	// group-d has shards ade & cda
-	assert.Equal(t, 3, len(p.EndpointGraph.Vertices["group-d"].Edges), "number of edges should match")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-d"].Edges, "group-a")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-d"].Edges, "group-c")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-d"].Edges, "group-e")
+	assert.Equal(t, 3, p.EndpointGraph.NumEdges("group-d"), "number of edges should match")
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-d", "group-a"}))
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-d", "group-c"}))
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-d", "group-e"}))
 
 	// group-e has shard ade
-	assert.Equal(t, 2, len(p.EndpointGraph.Vertices["group-e"].Edges), "number of edges should match")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-e"].Edges, "group-a")
-	assert.Contains(t, p.EndpointGraph.Vertices["group-e"].Edges, "group-d")
+	assert.Equal(t, 2, p.EndpointGraph.NumEdges("group-e"), "number of edges should match")
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-e", "group-a"}))
+	assert.True(t, p.EndpointGraph.Neighbors([]string{"group-e", "group-d"}))
 
 	// group-f no longer exists
-	assert.NotContains(t, p.EndpointGraph.Vertices, "group-f", "endpoint should not exist")
+	assert.False(t, p.EndpointGraph.VertexExists("group-f"), "endpoint should not exist")
 
 	// Test search of a partial shard using the graph
 	assert.False(t, p.ShardExistsWithEndpoints(context.Background(), []string{"group-a", "group-b"}))

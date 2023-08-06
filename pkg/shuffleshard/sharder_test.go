@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/soggycactus/kube-shuffle-sharder/shuffleshard"
+	"github.com/soggycactus/kube-shuffle-sharder/pkg/shuffleshard"
 )
 
 const (

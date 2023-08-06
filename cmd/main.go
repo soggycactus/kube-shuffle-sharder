@@ -37,6 +37,7 @@ import (
 
 	kubeshufflersharderiov1 "github.com/soggycactus/kube-shuffle-sharder/api/v1"
 	"github.com/soggycactus/kube-shuffle-sharder/internal/controller"
+	"github.com/soggycactus/kube-shuffle-sharder/pkg/graph"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -138,7 +139,7 @@ func main() {
 	if err = (&controller.PodMutatingWebhook{
 		Mu:                          new(sync.Mutex),
 		NodeCache:                   make(controller.NodeGroupCollection),
-		EndpointGraph:               controller.NewGraph[string](),
+		EndpointGraph:               graph.NewGraph[string](),
 		NodeGroupAutoDiscoveryLabel: nodeGroupAutoDiscoveryLabel,
 		TenantLabel:                 tenantLabel,
 		NumNodeGroups:               numNodeGroups,
