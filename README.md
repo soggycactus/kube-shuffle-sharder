@@ -1,80 +1,63 @@
 # kube-shuffle-sharder
-// TODO(user): Add simple overview of use/purpose
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+kube-shuffle-sharder is an operator that implements [shuffle sharding](https://aws.amazon.com/builders-library/workload-isolation-using-shuffle-sharding/) for Kubernetes node groups. With shuffle sharding, multi-tenant clusters can take advantage of combinatorial math to increase isolation between tenants while continuing to efficiently share infrastructure. If a noisy tenant or rogue infrastructure operation takes down a node group, shuffle sharding ensures that tenants remain online & experience a partial service degradation in the worst case scenario.
 
-## Getting Started
-You’ll need a Kubernetes cluster to run against. You can use [KIND](https://sigs.k8s.io/kind) to get a local cluster for testing, or run against a remote cluster.
-**Note:** Your controller will automatically use the current context in your kubeconfig file (i.e. whatever cluster `kubectl cluster-info` shows).
+kube-shuffle-sharder works by injecting a `requiredDuringSchedulingIgnoredDuringExecution` [node affinity](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#node-affinity) on pods to restrict their scheduling to a specific subset of node groups. The informer will watch & auto-discover all node groups by inspecting a label (`kube-shuffle-sharder.io/node-group` by default) on each node. The mutating webhook intercepts pod creation requests & inspects a label (`kube-shuffle-sharder.io/tenant` by default) to identify which tenant the pod belongs to - if a `ShuffleShard` resource already exists for this tenant, the webhook will retrieve the shard value & inject a node affinity to the pod. 
 
-### Running on the cluster
-1. Install Instances of Custom Resources:
+If no shuffle shard exists for the tenant, the webhook will create one - ensuring all following pod creation requests are routed to the same shard. For example, the following shuffle shard:
 
-```sh
-kubectl apply -f config/samples/
+```
+apiVersion: kube-shuffle-sharder.io/v1
+kind: ShuffleShard
+metadata:
+  name: tenant-b
+spec:
+  nodeGroups:
+  - group-c
+  - group-a
+  tenant: tenant-b
 ```
 
-2. Build and push your image to the location specified by `IMG`:
+will result in the following pod spec:
 
-```sh
-make docker-build docker-push IMG=<some-registry>/kube-shuffle-sharder:tag
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    kube-shuffle-sharder.io/tenant: tenant-b
+  name: tenant-b
+  namespace: default
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: kube-shuffle-sharder.io/node-group
+            operator: In
+            values:
+            - group-c
+            - group-a
+  containers:
+  - image: nginx:1.14.2
+    imagePullPolicy: IfNotPresent
+    name: nginx
 ```
 
-3. Deploy the controller to the cluster with the image specified by `IMG`:
+`ShuffleShards` are immutable - fixed assignment is required to implement shuffle sharding; any attempt to automatically failover tenants to different shards breaks the isolation provided by shuffle sharding. Since the shards are only evaluated during scheduling, you can delete an existing shard & re-deploy a tenant's pods to move them to a different shard if desired.
 
-```sh
-make deploy IMG=<some-registry>/kube-shuffle-sharder:tag
-```
+Shuffle sharding is similar to the [n choose k](https://www.hackmath.net/en/calculator/n-choose-k) problem; given a fixed number of node groups & a desired shard size, there is a finite number of shuffle shards possible. Once all shuffle shards have been allocated, pod creation requests will fail with the error `no shards available`.
 
-### Uninstall CRDs
-To delete the CRDs from the cluster:
+To monitor for shard usage, you can scrape the `/metrics` endpoint for `kube_shuffle_sharder_num_shuffle_shards_possible` and `kube_shuffle_sharder_num_shuffle_shards_used`, as well as additional latency metrics.
 
-```sh
-make uninstall
-```
+To use kube-shuffle-sharder, all you need to do is:
 
-### Undeploy controller
-UnDeploy the controller from the cluster:
+1. Create a label on your nodes that identify which node-group they are a part of
+2. Create a label on your pods that identify which tenant the pod belongs to
+3. Install kube-shuffle-sharder in your cluster
 
-```sh
-make undeploy
-```
-
-## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
-
-### How it works
-This project aims to follow the Kubernetes [Operator pattern](https://kubernetes.io/docs/concepts/extend-kubernetes/operator/).
-
-It uses [Controllers](https://kubernetes.io/docs/concepts/architecture/controller/),
-which provide a reconcile function responsible for synchronizing resources until the desired state is reached on the cluster.
-
-### Test It Out
-1. Install the CRDs into the cluster:
-
-```sh
-make install
-```
-
-2. Run your controller (this will run in the foreground, so switch to a new terminal if you want to leave it running):
-
-```sh
-make run
-```
-
-**NOTE:** You can also run this in one step by running: `make install run`
-
-### Modifying the API definitions
-If you are editing the API definitions, generate the manifests such as CRs or CRDs using:
-
-```sh
-make manifests
-```
-
-**NOTE:** Run `make --help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+Installing kube-shuffle-sharder is made simple through the Helm chart provided in this repository. You can specify the `nodeGroupAutoDiscoveryLabel`, `tenantLabel`, and the `numNodeGroups` per shuffle shard. Additionally, you can configure a `webhookSecretName` and `webhookCaBundle` to use your own certificate - otherwise the Helm chart will generate one for you.
 
 ## License
 

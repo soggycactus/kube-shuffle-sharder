@@ -43,7 +43,7 @@ help: ## Display this help.
 ##@ Development
 
 .PHONY: manifests
-manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+manifests: controller-gen ## Generate CustomResourceDefinition objects.
 	@$(CONTROLLER_GEN) crd paths="./..." output:crd:artifacts:config=chart/crds
 
 .PHONY: generate
