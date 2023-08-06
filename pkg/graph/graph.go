@@ -106,7 +106,11 @@ func (g *Graph[T]) NumEdges(key T) int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	return len(g.vertices[key].edges)
+	if v, ok := g.vertices[key]; ok {
+		return len(v.edges)
+	}
+
+	return 0
 }
 
 func (g *Graph[T]) DeleteVertex(key T) {

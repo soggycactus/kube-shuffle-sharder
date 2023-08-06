@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/soggycactus/kube-shuffle-sharder/pkg/graph"
 	"github.com/soggycactus/kube-shuffle-sharder/pkg/shuffleshard"
 )
 
@@ -23,6 +24,7 @@ const (
 
 type MockShardStore struct {
 	Store map[string]struct{}
+	Graph *graph.Graph[string]
 }
 
 func (m *MockShardStore) ShardExists(ctx context.Context, hash string) (bool, error) {
@@ -34,7 +36,11 @@ func (m *MockShardStore) ShardExists(ctx context.Context, hash string) (bool, er
 }
 
 func (m *MockShardStore) ShardExistsWithEndpoints(ctx context.Context, endpoints []string) bool {
-	return false
+	return m.Graph.Neighbors(endpoints)
+}
+
+func (m *MockShardStore) NumEdges(key string) int {
+	return m.Graph.NumEdges(key)
 }
 
 func HashShard(shard []string) (string, error) {
@@ -53,7 +59,7 @@ func HashShard(shard []string) (string, error) {
 	return hash, nil
 }
 
-func TestSharder(t *testing.T) {
+func TestShuffleShard(t *testing.T) {
 	store := &MockShardStore{
 		Store: map[string]struct{}{},
 	}
@@ -99,4 +105,66 @@ func TestSharder(t *testing.T) {
 		t.Logf("incorrect shard count: got %d, expected %d", shardCount, ExpectedShards)
 		t.FailNow()
 	}
+}
+
+func TestShuffleShardWithOverlap(t *testing.T) {
+	store := &MockShardStore{
+		Store: map[string]struct{}{},
+		Graph: graph.NewGraph[string](),
+	}
+
+	var endpoints []string
+	for i := 0; i < 6; i++ {
+		endpoints = append(endpoints, fmt.Sprintf("group-%d", i))
+	}
+
+	sharder := shuffleshard.Sharder[string]{
+		Endpoints:         endpoints,
+		ReplicationFactor: 3,
+		ShardStore:        store,
+		ShardKeyFunc:      HashShard,
+		Rand:              rand.New(rand.NewSource(time.Now().Unix())),
+	}
+
+	shardCount := 0
+	for {
+		result, err := sharder.ShuffleShardWithoutOverlap(context.Background(), 3)
+		if err != nil {
+			if err != shuffleshard.ErrNoShardsAvailable {
+				t.Logf("shuffle shard failed: %v", err)
+				t.Logf("created %d shards", shardCount)
+				t.FailNow()
+			}
+			break
+		}
+
+		hash, err := HashShard(result)
+		if err != nil {
+			t.Logf("failed to hash shard: %v", err)
+			t.Logf("created %d shards", shardCount)
+			t.FailNow()
+		}
+
+		store.Store[hash] = struct{}{}
+
+		for _, endpoint := range result {
+			store.Graph.AddVertexIfNotExists(endpoint)
+		}
+
+		for i := 0; i < len(result); i++ {
+			j := i + 1
+
+			for j < len(result) {
+				store.Graph.AddEdge(
+					result[i],
+					result[j],
+				)
+				j++
+			}
+		}
+
+		shardCount += 1
+	}
+
+	t.Logf("shard with overlap count: %v", shardCount)
 }

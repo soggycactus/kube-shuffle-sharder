@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math/rand"
+	"sort"
 )
 
 var ErrNoShardsAvailable = errors.New("no shards available")
@@ -13,6 +14,7 @@ var ErrTooManyOverlaps = errors.New("shard has too many overlapping endpoints")
 type ShardStore[T any] interface {
 	ShardExists(ctx context.Context, shardHash string) (bool, error)
 	ShardExistsWithEndpoints(ctx context.Context, endpoints []T) bool
+	NumEdges(T) int
 }
 
 type Sharder[T any] struct {
@@ -83,18 +85,33 @@ func (s *Sharder[T]) backtrack(ctx context.Context, cursor, endpoints []T) ([]T,
 
 func (s *Sharder[T]) ShuffleShardWithoutOverlap(ctx context.Context, maxOverlap int) ([]T, error) {
 	// Shuffle the order of endpoints for better performance
-	s.Rand.Shuffle(len(s.Endpoints), func(i, j int) {
-		s.Endpoints[i], s.Endpoints[j] = s.Endpoints[j], s.Endpoints[i]
+	sort.Slice(s.Endpoints, func(i, j int) bool {
+		return s.ShardStore.NumEdges(s.Endpoints[i]) < s.ShardStore.NumEdges(s.Endpoints[j])
 	})
-	return s.backtrackWithoutOverlap(ctx, []T{}, s.Endpoints, maxOverlap)
+	return s.backtrackWithoutOverlap(ctx, []T{}, s.Endpoints, maxOverlap, make(map[string]bool))
 }
 
-func (s *Sharder[T]) backtrackWithoutOverlap(ctx context.Context, cursor, endpoints []T, maxOverlap int) ([]T, error) {
+func (s *Sharder[T]) backtrackWithoutOverlap(ctx context.Context, cursor, endpoints []T, maxOverlap int, memo map[string]bool) ([]T, error) {
 	if len(cursor) >= maxOverlap {
 		combinations := s.combinations(cursor, maxOverlap)
 
 		for _, combo := range combinations {
-			if ok := s.ShardStore.ShardExistsWithEndpoints(context.Background(), combo); ok {
+			comboHash, err := s.ShardKeyFunc(combo)
+			if err != nil {
+				return nil, err
+			}
+
+			if overlap, ok := memo[comboHash]; ok {
+				if overlap {
+					return nil, ErrTooManyOverlaps
+				}
+				continue
+			}
+
+			overlap := s.ShardStore.ShardExistsWithEndpoints(context.Background(), combo)
+			memo[comboHash] = overlap
+
+			if overlap {
 				return nil, ErrTooManyOverlaps
 			}
 		}
@@ -125,7 +142,7 @@ func (s *Sharder[T]) backtrackWithoutOverlap(ctx context.Context, cursor, endpoi
 
 		// add the current endpoint to the cursor
 		cursor = append(cursor, endpoint)
-		result, err := s.backtrack(ctx, cursor, newEndpoints)
+		result, err := s.backtrackWithoutOverlap(ctx, cursor, newEndpoints, maxOverlap, memo)
 		if err != nil {
 			cursor = cursor[:len(cursor)-1]
 			continue
@@ -138,5 +155,24 @@ func (s *Sharder[T]) backtrackWithoutOverlap(ctx context.Context, cursor, endpoi
 }
 
 func (s *Sharder[T]) combinations(cursor []T, size int) [][]T {
-	return nil
+	n := len(cursor)
+	data := make([]T, size)
+	var result [][]T
+	s.combinationsUtil(cursor, data, 0, n-1, 0, size, &result)
+	return result
+}
+
+func (s *Sharder[T]) combinationsUtil(arr []T, data []T, start int, end int, index int, r int, result *[][]T) {
+	if index == r {
+		// Append a copy of the combination to the result slice
+		comb := make([]T, r)
+		copy(comb, data)
+		*result = append(*result, comb)
+		return
+	}
+
+	for i := start; i <= end && end-i+1 >= r-index; i++ {
+		data[index] = arr[i]
+		s.combinationsUtil(arr, data, i+1, end, index+1, r, result)
+	}
 }

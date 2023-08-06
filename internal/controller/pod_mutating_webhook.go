@@ -568,6 +568,10 @@ func (p *PodMutatingWebhook) ShardExistsWithEndpoints(ctx context.Context, endpo
 	return p.EndpointGraph.Neighbors(endpoints)
 }
 
+func (p *PodMutatingWebhook) NumEdges(key string) int {
+	return 1
+}
+
 // SetupWithManager registers the handler with manager's webhook server
 // and adds the informer to the list of processes for manager to start
 func (p *PodMutatingWebhook) SetupWithManager(mgr ctrl.Manager) error {
