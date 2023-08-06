@@ -1,33 +1,43 @@
 package controller
 
-func NewGraph() *Graph {
-	return &Graph{
-		Vertices: map[string]*Vertex{},
+import "sync"
+
+func NewGraph[T comparable]() *Graph[T] {
+	return &Graph[T]{
+		Vertices: map[T]*Vertex[T]{},
+		mu:       new(sync.Mutex),
 	}
 }
 
-type Graph struct {
-	Vertices map[string]*Vertex
+type Graph[T comparable] struct {
+	mu       *sync.Mutex
+	Vertices map[T]*Vertex[T]
 }
 
-type Vertex struct {
-	Edges map[string]*Edge
+type Vertex[T comparable] struct {
+	Edges map[T]*Edge[T]
 }
 
-type Edge struct {
-	Vertex *Vertex
+type Edge[T comparable] struct {
+	Vertex *Vertex[T]
 }
 
-func (g *Graph) AddVertexIfNotExists(key string) {
+func (g *Graph[T]) AddVertexIfNotExists(key T) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 	_, ok := g.Vertices[key]
 	if !ok {
-		g.Vertices[key] = &Vertex{
-			Edges: make(map[string]*Edge),
+		g.Vertices[key] = &Vertex[T]{
+			Edges: make(map[T]*Edge[T]),
 		}
 	}
 }
 
-func (g *Graph) AddEdge(srcKey, destKey string) {
+func (g *Graph[T]) AddEdge(srcKey, destKey T) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 	src, ok := g.Vertices[srcKey]
 	if !ok {
 		return
@@ -38,15 +48,18 @@ func (g *Graph) AddEdge(srcKey, destKey string) {
 		return
 	}
 
-	src.Edges[destKey] = &Edge{
+	src.Edges[destKey] = &Edge[T]{
 		Vertex: dst,
 	}
-	dst.Edges[srcKey] = &Edge{
+	dst.Edges[srcKey] = &Edge[T]{
 		Vertex: src,
 	}
 }
 
-func (g *Graph) DeleteEdge(srcKey, destKey string) {
+func (g *Graph[T]) DeleteEdge(srcKey, destKey T) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 	src, ok := g.Vertices[srcKey]
 	if ok {
 		delete(src.Edges, destKey)
@@ -56,4 +69,26 @@ func (g *Graph) DeleteEdge(srcKey, destKey string) {
 	if ok {
 		delete(dst.Edges, srcKey)
 	}
+}
+
+func (g *Graph[T]) PathExists(keys []T) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if len(keys) == 0 {
+		return false
+	}
+
+	start, ok := g.Vertices[keys[0]]
+	if !ok {
+		return false
+	}
+
+	for _, key := range keys[1:] {
+		if _, ok := start.Edges[key]; !ok {
+			return false
+		}
+	}
+
+	return true
 }

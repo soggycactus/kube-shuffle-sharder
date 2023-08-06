@@ -105,7 +105,7 @@ type NodeGroupCollection map[string]NodeGroup
 type PodMutatingWebhook struct {
 	Mu                          *sync.Mutex
 	NodeCache                   NodeGroupCollection
-	EndpointGraph               *Graph
+	EndpointGraph               *Graph[string]
 	NodeGroupAutoDiscoveryLabel string
 	TenantLabel                 string
 	NumNodeGroups               int

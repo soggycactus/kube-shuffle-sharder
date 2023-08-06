@@ -104,7 +104,7 @@ func TestNodeEventHandlerFuncs(t *testing.T) {
 func TestShardHandlerFuncs(t *testing.T) {
 	p := controller.PodMutatingWebhook{
 		Mu:            new(sync.Mutex),
-		EndpointGraph: controller.NewGraph(),
+		EndpointGraph: controller.NewGraph[string](),
 	}
 
 	shuffleShards := []*v1.ShuffleShard{

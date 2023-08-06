@@ -138,7 +138,7 @@ func main() {
 	if err = (&controller.PodMutatingWebhook{
 		Mu:                          new(sync.Mutex),
 		NodeCache:                   make(controller.NodeGroupCollection),
-		EndpointGraph:               controller.NewGraph(),
+		EndpointGraph:               controller.NewGraph[string](),
 		NodeGroupAutoDiscoveryLabel: nodeGroupAutoDiscoveryLabel,
 		TenantLabel:                 tenantLabel,
 		NumNodeGroups:               numNodeGroups,
