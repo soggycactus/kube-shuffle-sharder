@@ -219,9 +219,11 @@ func TestShardHandlerFuncs(t *testing.T) {
 	assert.NotContains(t, p.EndpointGraph.Vertices, "group-f", "endpoint should not exist")
 
 	// Test search of a partial shard using the graph
-	assert.False(t, p.ShardExistsWithEndpoints(context.Background(), []string{"a", "b"}))
-	assert.True(t, p.ShardExistsWithEndpoints(context.Background(), []string{"a", "e"}))
-
+	assert.False(t, p.ShardExistsWithEndpoints(context.Background(), []string{"group-a", "group-b"}))
+	assert.True(t, p.ShardExistsWithEndpoints(context.Background(), []string{"group-a", "group-e"}))
+	assert.True(t, p.ShardExistsWithEndpoints(context.Background(), []string{"group-e", "group-a"}))
+	assert.True(t, p.ShardExistsWithEndpoints(context.Background(), []string{"group-a", "group-c"}))
+	assert.True(t, p.ShardExistsWithEndpoints(context.Background(), []string{"group-c", "group-a"}))
 }
 
 func TestChoose(t *testing.T) {
