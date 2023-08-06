@@ -146,8 +146,6 @@ func (p *PodMutatingWebhook) StartInformer(ctx context.Context) error {
 
 	logger.Info("cache synced, informers started")
 
-	<-stop
-
 	return nil
 }
 
