@@ -321,9 +321,6 @@ func (p *PodMutatingWebhook) getGroupFromNode(obj interface{}) (*corev1.Node, *s
 }
 
 func (p *PodMutatingWebhook) ShardAddFunc(obj interface{}) {
-	p.Mu.Lock()
-	defer p.Mu.Unlock()
-
 	ctx := context.Background()
 	logger := log.FromContext(ctx)
 
@@ -351,9 +348,6 @@ func (p *PodMutatingWebhook) ShardAddFunc(obj interface{}) {
 }
 
 func (p *PodMutatingWebhook) ShardDeleteFunc(obj interface{}) {
-	p.Mu.Lock()
-	defer p.Mu.Unlock()
-
 	ctx := context.Background()
 	logger := log.FromContext(ctx)
 
@@ -378,8 +372,8 @@ func (p *PodMutatingWebhook) ShardDeleteFunc(obj interface{}) {
 
 	// If no edges remain for the group, delete it from our graph
 	for _, group := range shard.Spec.NodeGroups {
-		if len(p.EndpointGraph.Vertices[group].Edges) == 0 {
-			delete(p.EndpointGraph.Vertices, group)
+		if p.EndpointGraph.NumEdges(group) == 0 {
+			p.EndpointGraph.DeleteVertex(group)
 		}
 	}
 }

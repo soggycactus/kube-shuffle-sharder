@@ -64,6 +64,10 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet ## Run tests.
 	@go test -race -v ./... -coverprofile cover.out
 
+.PHONY: view-coverage
+view-coverage: test
+	@go tool cover -html=cover.out
+
 ##@ Build
 
 .PHONY: build

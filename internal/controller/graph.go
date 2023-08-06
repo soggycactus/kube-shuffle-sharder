@@ -92,3 +92,17 @@ func (g *Graph[T]) PathExists(keys []T) bool {
 
 	return true
 }
+
+func (g *Graph[T]) NumEdges(key T) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	return len(g.Vertices[key].Edges)
+}
+
+func (g *Graph[T]) DeleteVertex(key T) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	delete(g.Vertices, key)
+}
