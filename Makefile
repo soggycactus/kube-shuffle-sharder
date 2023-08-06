@@ -1,8 +1,6 @@
 
 # Image URL to use all building/pushing image targets
 IMG ?= controller:latest
-# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.27.1
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -46,33 +44,36 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases output:crd:artifacts:config=chart/crds
+	@$(CONTROLLER_GEN) crd paths="./..." output:crd:artifacts:config=chart/crds
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	@$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
-	go fmt ./...
+	@go fmt ./...
 
 .PHONY: vet
 vet: ## Run go vet against code.
-	go vet ./...
+	@go vet ./...
 
 .PHONY: test
 test: manifests generate fmt vet ## Run tests.
-	go test -race -v ./... -coverprofile cover.out
+	@go test -race -v ./... -coverprofile cover.out
+
+view-coverage: test
+	@go tool cover -html=cover.out
 
 ##@ Build
 
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
-	go build -race -o bin/manager cmd/main.go
+	@go build -race -o bin/manager cmd/main.go
 
 .PHONY: run
 run: manifests generate fmt vet install ## Run a controller from your host.
-	CERT_DIRECTORY=$(CAROOT) go run ./cmd/main.go
+	@CERT_DIRECTORY=$(CAROOT) go run ./cmd/main.go
 
 # If you wish built the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64 ). However, you must enable docker buildKit for it.
@@ -110,13 +111,13 @@ endif
 
 .PHONY: install
 install: manifests ## Install CRDs into the K8s cluster specified in ~/.kube/config.
-	$(KUBECTL) apply -f chart/crds
-	$(KUBECTL) apply -f local/webhook.yaml
+	@$(KUBECTL) apply -f chart/crds
+	@$(KUBECTL) apply -f local/webhook.yaml
 
 .PHONY: uninstall
 uninstall: manifests ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f chart/crds
-	$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f local/webhook.yaml
+	@$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f chart/crds
+	@$(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f local/webhook.yaml
 
 ##@ Build Dependencies
 
@@ -128,7 +129,6 @@ $(LOCALBIN):
 ## Tool Binaries
 KUBECTL ?= kubectl
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
-ENVTEST ?= $(LOCALBIN)/setup-envtest
 
 ## Tool Versions
 CONTROLLER_TOOLS_VERSION ?= v0.12.0
